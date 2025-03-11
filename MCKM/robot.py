@@ -3,14 +3,8 @@ import numpy as np
 from environment import SCALE, BORDER_LEFT, BORDER_TOP, WORLD_WIDTH_METERS, WORLD_HEIGHT_METERS
 
 class Robot:
-    def __init__(self, x, y, angle=0, size=0.5, motor_distance=0.4, max_speed=1.0):
-        """
-        - x, y: Initial position in meters
-        - angle: Orientation in degrees
-        - size: Robot size in meters
-        - motor_distance: Distance between left and right motors
-        - max_speed: Maximum motor speed (m/s)
-        """
+    def __init__(self, x, y, angle=90, size=0.5, motor_distance=0.5, max_speed=1.0):
+
         self.x = x
         self.y = y
         self.angle = angle  # Degrees
@@ -31,6 +25,13 @@ class Robot:
         self.left_motor_speed = max(-self.max_speed, min(self.max_speed, left_speed))
         self.right_motor_speed = max(-self.max_speed, min(self.max_speed, right_speed))
 
+    def set_velocity(self, linear_velocity, angular_velocity):
+        """ Set the robot's linear and angular velocities. """
+        L = self.motor_distance
+        vl = linear_velocity - (angular_velocity * L / 2)
+        vr = linear_velocity + (angular_velocity * L / 2)
+        self.set_motor_speeds(vl, vr)
+
     def update(self, dt):
         """ Updates the robot's position based on differential drive kinematics and prevents boundary exit """
         vl = self.left_motor_speed  # Left motor velocity
@@ -41,15 +42,18 @@ class Robot:
         v = (vl + vr) / 2  # Forward velocity (m/s)
         omega = (vr - vl) / L  # Angular velocity (rad/s)
 
-        # Predict new position
+        # Predict new position based on velocity and time
         theta = math.radians(self.angle)
-        new_x = self.x + v * math.cos(theta) * dt
-        new_y = self.y - v * math.sin(theta) * dt  # Negative y due to Pygame coordinates
+        delta_x = v * math.cos(theta) * dt
+        delta_y = -v * math.sin(theta) * dt  # Negative due to Pygame coordinate system
+
+        new_x = self.x + delta_x
+        new_y = self.y + delta_y
 
         # Enforce boundary conditions
-        min_x = 0 + self.size / 2
+        min_x = self.size / 2
         max_x = WORLD_WIDTH_METERS - self.size / 2
-        min_y = 0 + self.size / 2
+        min_y = self.size / 2
         max_y = WORLD_HEIGHT_METERS - self.size / 2
 
         if min_x <= new_x <= max_x:
@@ -57,8 +61,11 @@ class Robot:
         if min_y <= new_y <= max_y:
             self.y = new_y
 
-        self.angle += math.degrees(omega * dt)
-        self.angle %= 360  # Keep angle within [0, 360]
+        # Update orientation
+        self.angle = (self.angle + math.degrees(omega * dt)) % 360
+
+        # print(f"Robot position: ({self.x:.2f}, {self.y:.2f}), Angle: {self.angle:.2f}")
+
 
     def detect_landmarks(self, landmarks, fov_angle, view_distance):
         """ Detects landmarks within the robot's FOV and prints if the list changes """
@@ -71,12 +78,12 @@ class Robot:
         # If the visible landmarks have changed, print the new set
         if detected_landmarks != self.last_visible_landmarks:
             self.last_visible_landmarks = detected_landmarks
-            if detected_landmarks:
-                print("\**Current Landmarks in View:**")
-                for shape, color, x, y in detected_landmarks:
-                    print(f" - {color.capitalize()} {shape} at ({x:.2f}, {y:.2f})")
-            else:
-                print("\nNo landmarks in view")
+            # if detected_landmarks:
+            #     print("\**Current Landmarks in View:**")
+            #     for shape, color, x, y in detected_landmarks:
+            #         print(f" - {color.capitalize()} {shape} at ({x:.2f}, {y:.2f})")
+            # else:
+            #     print("\nNo landmarks in view")
 
         return [landmark for landmark in landmarks if (landmark.shape, landmark.color_name, landmark.x, landmark.y) in detected_landmarks]
 

@@ -12,7 +12,7 @@ WORLD_WIDTH_METERS = 15  # Change this to resize the border
 WORLD_HEIGHT_METERS = 40  # Change this to resize the border
 
 # Scaling factor: 1 meter = constant pixel ratio
-SCALE = 23
+SCALE = 22
 
 # Compute the red border rectangle (scaled workspace inside the fixed canvas)
 BORDER_LEFT = (SCREEN_WIDTH - WORLD_WIDTH_METERS * SCALE) // 2

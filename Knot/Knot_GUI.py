@@ -276,7 +276,6 @@ class AgentReductionGUI:
 
         except Exception as e:
             messagebox.showerror("Error", f"Invalid input: {e}")
-        self.print_matrix(matrix)
 
     def draw_grid(self, matrix, path):
         """
