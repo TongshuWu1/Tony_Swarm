@@ -94,7 +94,6 @@ while running:
             if path_time_accumulators[i] >= path_update_interval:
                 robot_paths[i].append((robot.x, robot.y))  # Store robot position
                 path_time_accumulators[i] = 0  # Reset accumulator for this robot
-            # Detect landmarks inside FOV
             visible_landmarks = robot.detect_landmarks(landmarks, FOV_ANGLE, VIEW_DISTANCE)
 
     # Draw elements
@@ -105,6 +104,8 @@ while running:
     for robot in robots:
         draw_robot(screen, robot)  # Ensure this uses the updated position
         draw_fov(screen, robot.x, robot.y, robot.angle, FOV_ANGLE, VIEW_DISTANCE)
+        draw_kalman_estimate(screen, robot)
+        draw_actual_vs_predicted(screen, robot)
     draw_buttons(screen, buttons)
 
     # Display motor speeds

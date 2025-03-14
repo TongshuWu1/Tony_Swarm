@@ -1,6 +1,7 @@
 import pygame
 import math
 from environment import SCALE, BORDER_LEFT, BORDER_TOP
+import numpy as np
 
 def draw_robot(screen, robot):
     """ Draws a pointier triangle representing the robot at (x, y) with direction angle """
@@ -210,3 +211,54 @@ def draw_time_speed(screen, time_scale):
         font = pygame.font.Font(None, 28)
         timer_text = font.render(f"Time: {elapsed_time:.2f}/{time_limit:.2f} s", True, (0, 0, 0))
         screen.blit(timer_text, (10, 130))
+
+
+def draw_kalman_estimate(screen, robot):
+    """ Draws the Kalman Filter estimated position and uncertainty ellipse """
+    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
+    estimated_y = BORDER_TOP + robot.state[1] * SCALE
+
+    # Draw estimated position (Red Dot)
+    pygame.draw.circle(screen, (255, 0, 0), (int(estimated_x), int(estimated_y)), 5)
+
+    # Draw uncertainty ellipse
+    draw_uncertainty_ellipse(screen, robot)
+
+def draw_uncertainty_ellipse(screen, robot):
+    """ Draws an uncertainty ellipse representing Gaussian distribution around estimated position """
+    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
+    estimated_y = BORDER_TOP + robot.state[1] * SCALE
+
+    # Extract covariance matrix for position
+    P_pos = robot.P[:2, :2]  # Extract only position covariance
+
+    # Compute eigenvalues and eigenvectors for scaling the ellipse
+    eigenvalues, eigenvectors = np.linalg.eigh(P_pos)
+
+    # Limit maximum uncertainty size to prevent oversized ellipses
+    eigenvalues = np.clip(eigenvalues, 0.0001, 0.05)
+
+    # Convert eigenvalues to standard deviation for 95% confidence interval
+    scale_x = 1.5 * math.sqrt(eigenvalues[0]) * SCALE
+    scale_y = 1.5 * math.sqrt(eigenvalues[1]) * SCALE
+
+    # Compute rotation angle
+    angle = math.degrees(math.atan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+
+    # Create an ellipse surface
+    ellipse_surface = pygame.Surface((scale_x * 2, scale_y * 2), pygame.SRCALPHA)
+    pygame.draw.ellipse(ellipse_surface, (255, 0, 0, 100), (0, 0, scale_x * 2, scale_y * 2), 2)
+
+    # Rotate and blit the ellipse at the estimated position
+    rotated_ellipse = pygame.transform.rotate(ellipse_surface, -angle)
+    screen.blit(rotated_ellipse, (estimated_x - scale_x, estimated_y - scale_y))
+
+
+def draw_actual_vs_predicted(screen, robot):
+    """ Draws a line connecting the actual position to the predicted position """
+    true_x = BORDER_LEFT + robot.x * SCALE
+    true_y = BORDER_TOP + robot.y * SCALE
+    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
+    estimated_y = BORDER_TOP + robot.state[1] * SCALE
+
+    pygame.draw.line(screen, (0, 0, 255), (true_x, true_y), (estimated_x, estimated_y), 2)
