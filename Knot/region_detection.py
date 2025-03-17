@@ -1,7 +1,7 @@
 from pathNode import Node
 
 def read_path():
-    global entryPoint, exitPoint
+    """Reads the matrix and entry/exit points from user input."""
     rows = int(input("Enter the number of rows: "))
     cols = int(input("Enter the number of columns: "))
 
@@ -10,196 +10,133 @@ def read_path():
     # Read the matrix row by row
     print("Enter the matrix row by row (comma separated):")
     for i in range(rows):
-        row = list(map(int, input().replace(',', ',').split(',')))
+        row = list(map(int, input().split(',')))
         matrixA.append(row)
 
-    entry_valid = False
-    while not entry_valid:
+    # Validate Entry Point
+    while True:
         print("Enter the path entry point (row, col):")
-        entry_input = input().replace(',', ',').split(',')
+        entry_input = input().split(',')
         if len(entry_input) == 2:
             entryPoint = tuple(map(int, entry_input))
-            if (entryPoint[0] < 0 or entryPoint[0] >= rows or
-                    entryPoint[1] < 0 or entryPoint[1] >= cols or
-                    matrixA[entryPoint[0]][entryPoint[1]] not in (-1, 1)):
-                print("Invalid entry point:", entryPoint)
-                print("value: ", matrixA[entryPoint[0]][entryPoint[1]])
-            else:
+            if 0 <= entryPoint[0] < rows and 0 <= entryPoint[1] < cols and matrixA[entryPoint[0]][entryPoint[1]] in (-1, 1):
                 print("Valid entry point:", entryPoint)
-                entry_valid = True
+                break
+            else:
+                print("Invalid entry point.")
         else:
-            print("Invalid input. Please enter the path entry point as 'row,col'.")
+            print("Invalid input format. Use 'row,col'.")
 
-    exit_valid = False
-    while not exit_valid:
+    # Validate Exit Point
+    while True:
         print("Enter the path exit point (row, col):")
-        exit_input = input().replace(',', ',').split(',')
+        exit_input = input().split(',')
         if len(exit_input) == 2:
             exitPoint = tuple(map(int, exit_input))
-            if (exitPoint[0] < 0 or exitPoint[0] >= rows or
-                    exitPoint[1] < 0 or exitPoint[1] >= cols or
-                    matrixA[exitPoint[0]][exitPoint[1]] not in (-1, 1)):
-                print("Invalid exit point:", exitPoint)
-                print("value: ", matrixA[exitPoint[0]][exitPoint[1]])
-            else:
+            if 0 <= exitPoint[0] < rows and 0 <= exitPoint[1] < cols and matrixA[exitPoint[0]][exitPoint[1]] in (-1, 1):
                 print("Valid exit point:", exitPoint)
-                exit_valid = True
+                break
+            else:
+                print("Invalid exit point.")
         else:
-            print("Invalid input. Please enter the path exit point as 'row,col'.")
+            print("Invalid input format. Use 'row,col'.")
 
     return matrixA, entryPoint, exitPoint
 
 def print_matrix(matrixA):
+    """Prints the matrix in a readable format."""
     for row in matrixA:
         print(" ".join(map(str, row)))
 
-def search_path(matrixA, currentPoint, pathflag, pathindex, previousCrossIndex, crossNumber):
-    print(f"Searching from {currentPoint} in direction {pathflag}")
-    rows = len(matrixA)
-    cols = len(matrixA[0])
-    row0, col0 = currentPoint
+def search_next_turn(matrixA, row, col, direction):
+    """Finds the next turning point by checking both directions in a row or column."""
+    rows, cols = len(matrixA), len(matrixA[0])
 
-    add_agent = 0
-    nextPoint = None
-    path_cells = []
+    if direction == "row":  # Searching left and right
+        for c in range(col - 1, -1, -1):  # Left search
+            if matrixA[row][c] in {1, -1}:
+                return (row, c)
+        for c in range(col + 1, cols):  # Right search
+            if matrixA[row][c] in {1, -1}:
+                return (row, c)
 
-    def walk_cells(cells, previousCrossIndex, crossNumber):
-        nonlocal add_agent
-        print("previousCrossIndex:", previousCrossIndex)
-        for (r, c) in cells:
-            if matrixA[r][c] == 0:
-                path_cells.append((r, c))
-            elif matrixA[r][c] == previousCrossIndex:
-                print(f"Zigzag detected at {(r, c)}")
-                crossNumber += 1
-                add_agent = 0  # Set add_agent to0 when a zigzag is detected
-            elif (matrixA[r][c] not in (0, 1, -1) and matrixA[r][c] != previousCrossIndex):
-                add_agent = 1
-                crossNumber += 1
-                previousCrossIndex = matrixA[r][c]
-                print(f"Crossing {previousCrossIndex} at {(r, c)}. Updating previousCrossIndex to {previousCrossIndex}. crossing: {crossNumber}")
+    elif direction == "col":  # Searching up and down
+        for r in range(row - 1, -1, -1):  # Up search
+            if matrixA[r][col] in {1, -1}:
+                return (r, col)
+        for r in range(row + 1, rows):  # Down search
+            if matrixA[r][col] in {1, -1}:
+                return (r, col)
 
-        return add_agent, previousCrossIndex, crossNumber
+    return None  # No turn found
 
-    if pathflag == 'r':
-        for col in range(cols):
-            if col != col0 and matrixA[row0][col] in (1, -1):
-                nextPoint = (row0, col)
-                step = 1 if col > col0 else -1
-                cells = [(row0, c) for c in range(col0, col + step, step)]
-                add_agent, previousCrossIndex, crossNumber = walk_cells(cells, previousCrossIndex, crossNumber)
-                return nextPoint, 'c', add_agent, path_cells, previousCrossIndex, crossNumber
-        return None, 'r', add_agent, path_cells, previousCrossIndex, crossNumber
+def find_starting_direction(matrixA, row, col):
+    """Determines the initial movement direction by checking both row and column."""
+    if search_next_turn(matrixA, row, col, "row"):
+        return "row"
+    elif search_next_turn(matrixA, row, col, "col"):
+        return "col"
+    return None
 
-    elif pathflag == 'c':
-        for row in range(rows):
-            if row != row0 and matrixA[row][col0] in (1, -1):
-                nextPoint = (row, col0)
-                step = 1 if row > row0 else -1
-                cells = [(r, col0) for r in range(row0, row + step, step)]
-                add_agent, previousCrossIndex, crossNumber = walk_cells(cells, previousCrossIndex, crossNumber)
-                return nextPoint, 'r', add_agent, path_cells, previousCrossIndex, crossNumber
-        return None, 'c', add_agent, path_cells, previousCrossIndex, crossNumber
+def trace_knot_path(matrixA, entryPoint, exitPoint):
+    """Traces the full rope path, ensuring all steps are recorded and detects multiple loops."""
+    currentPoint = entryPoint
+    path_list = []  # Store full path
+    path_set = set()  # Store visited points for quick loop detection
 
-    else:
-        for col in range(cols):
-            if col != col0 and matrixA[row0][col] in (1, -1):
-                nextPoint = (row0, col)
-                step = 1 if col > col0 else -1
-                cells = [(row0, c) for c in range(col0, col + step, step)]
-                add_agent, previousCrossIndex, crossNumber = walk_cells(cells, previousCrossIndex, crossNumber)
-                return nextPoint, 'c', add_agent, path_cells, previousCrossIndex, crossNumber
+    # Determine the first search direction
+    direction = find_starting_direction(matrixA, entryPoint[0], entryPoint[1])
+    if not direction:
+        print("No valid path found from the starting point.")
+        return []
 
-        for row in range(rows):
-            if row != row0 and matrixA[row][col0] in (1, -1):
-                nextPoint = (row, col0)
-                step = 1 if row > row0 else -1
-                cells = [(r, col0) for r in range(row0, row + step, step)]
-                add_agent, previousCrossIndex, crossNumber = walk_cells(cells, previousCrossIndex, crossNumber)
-                return nextPoint, 'r', add_agent, path_cells, previousCrossIndex, crossNumber
-
-        return None, 'i', add_agent, path_cells, previousCrossIndex, crossNumber
-
-
-def compute_agent_reduction(matrix, entry, exit_):
-    print("\nRunning Agent Reduction Algorithm...")
-
-    pathflag = "i"
-    currentPoint = exit_
-    head = Node(currentPoint, "agent")
-    currentNode = head
-
-    path_list = []  # Stores the ordered path from exit to entry
-    visited_cells = set()  # Tracks visited cells to prevent redundancy
-    crossNumber = 0
-    pathindex = 2
-    previousCrossIndex = -2
-
-    while currentPoint != entry:
-        print(f"\nCurrentPoint: {currentPoint}, pathflag: {pathflag}, pathindex: {pathindex}")
-        nextPoint, pathflag, add_agent, path_cells, previousCrossIndex, crossNumber = search_path(
-            matrix, currentPoint, pathflag,
-            pathindex=pathindex,
-            previousCrossIndex=previousCrossIndex,
-            crossNumber=crossNumber
-        )
+    while currentPoint != exitPoint:
+        nextPoint = search_next_turn(matrixA, currentPoint[0], currentPoint[1], direction)
 
         if not nextPoint:
             print("No more path found; stopping.")
             break
 
-        if add_agent == 1:
-            print(f"Crossing detected -> incrementing pathindex from {pathindex} to {pathindex + 1}")
-            currentNode.point_identifier = "agent"
-            pathindex += 1
+        # **Store all cells between turns, ensuring no duplicates**
+        row1, col1 = currentPoint
+        row2, col2 = nextPoint
 
-        # Add each traversed cell to the path list only if it's not a duplicate, unless it's a crossing
-        for cell in path_cells:
-            if cell not in visited_cells or add_agent == 1:
-                matrix[cell[0]][cell[1]] = pathindex
-                visited_cells.add(cell)
-                path_list.append(cell)  # Ensuring every path cell is tracked correctly
+        if direction == "row":  # Moving along a row
+            step = 1 if col2 > col1 else -1
+            for c in range(col1 + step, col2 + step, step):  # Avoid duplicating starting point
+                if (row1, c) in path_set:
+                    loop_start = path_list.index((row1, c))
+                    loop = path_list[loop_start:]
+                    print("\nLoop Detected! ")
+                    print("Loop Path:", loop)
+                path_list.append((row1, c))
+                path_set.add((row1, c))
 
-        # Also store the nextPoint in path_list
-        if nextPoint not in visited_cells or add_agent == 1:
-            path_list.append(nextPoint)
+        else:  # Moving along a column
+            step = 1 if row2 > row1 else -1
+            for r in range(row1 + step, row2 + step, step):  # Avoid duplicating starting point
+                if (r, col1) in path_set:
+                    loop_start = path_list.index((r, col1))
+                    loop = path_list[loop_start:]
+                    print("\n Loop Detected! ")
+                    print("Loop Path:", loop)
+                path_list.append((r, col1))
+                path_set.add((r, col1))
 
-        # Create a new linked list node
-        newNode = Node(nextPoint, "agent" if add_agent == 1 else "path")
-        currentNode.next = newNode
-        currentNode = newNode
         currentPoint = nextPoint
+        direction = "col" if direction == "row" else "row"  # Switch between row/col search
 
-        if add_agent == 1:
-            pathindex += 1
-        print_matrix(matrix)
-
-    # Ensure the exit point is included in the path list
-    if exit_ not in path_list:
-        path_list.insert(0, exit_)
-
-    return path_list, head, crossNumber
-
+    return path_list
 
 if __name__ == "__main__":
     matrixA, entryPoint, exitPoint = read_path()
     print("\nInitial matrix:")
     print_matrix(matrixA)
-    print(f"\nEntry point: {entryPoint} (Agent)")
-    print(f"Exit point: {exitPoint} (Agent)")
+    print(f"\nEntry point: {entryPoint}")
+    print(f"Exit point: {exitPoint}")
 
-    path, head, crossNumber = compute_agent_reduction(matrixA, entryPoint, exitPoint)
+    # Compute the full rope path
+    full_path = trace_knot_path(matrixA, entryPoint, exitPoint)
 
-    print("\nFinal matrix:")
-    print_matrix(matrixA)
-
-    print("\nLinked path:")
-    node_ptr = head
-    while node_ptr:
-        node_ptr.print_node()
-        node_ptr = node_ptr.next
-
-    print("\nUnique Path List:")
-    print(path)
-
-    print("\nCrossings:", crossNumber)
+    print("\nFull Rope Path (All Cells):")
+    print(full_path)  # Print the list of all path cells

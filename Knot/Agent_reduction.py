@@ -72,7 +72,7 @@ def search_path(matrixA, currentPoint, pathflag, pathindex, previousCrossIndex, 
             elif matrixA[r][c] == previousCrossIndex:
                 print(f"Zigzag detected at {(r, c)}")
                 crossNumber += 1
-                add_agent = 0  # Set add_agent to0 when a zigzag is detected
+                add_agent = 0  # Set add_agent to 0 when a zigzag is detected
             elif (matrixA[r][c] not in (0, 1, -1) and matrixA[r][c] != previousCrossIndex):
                 add_agent = 1
                 crossNumber += 1
@@ -120,7 +120,6 @@ def search_path(matrixA, currentPoint, pathflag, pathindex, previousCrossIndex, 
 
         return None, 'i', add_agent, path_cells, previousCrossIndex, crossNumber
 
-
 def compute_agent_reduction(matrix, entry, exit_):
     print("\nRunning Agent Reduction Algorithm...")
 
@@ -157,6 +156,7 @@ def compute_agent_reduction(matrix, entry, exit_):
 
         for (r, c) in path_cells:
             matrix[r][c] = pathindex
+            path_list.append((r, c))  # Record every single point
 
         if nextPoint == entry or add_agent == 1:
             newNode = Node(nextPoint, "agent")
@@ -174,7 +174,6 @@ def compute_agent_reduction(matrix, entry, exit_):
         print_matrix(matrix)
 
     return path_list, head, crossNumber
-
 
 if __name__ == "__main__":
     matrixA, entryPoint, exitPoint = read_path()
