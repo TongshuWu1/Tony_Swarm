@@ -52,8 +52,8 @@ class Robot:
         # **Update Kalman Filter Prediction (State Estimation)**
         self.state[0] += v * math.cos(theta) * dt  # Predict x position
         self.state[1] -= v * math.sin(theta) * dt  # Predict y position (inverted in pygame)
-        self.state[2] = v  # Velocity in x
-        self.state[3] = -v  # Velocity in y (inverted)
+        self.state[2] += omega * dt  # Predict x velocity
+
 
         # **Kalman Prediction Step**
         F = np.array([
@@ -64,8 +64,8 @@ class Robot:
         ])
         self.P = F @ self.P @ F.T + self.Q  # Update covariance
 
-        # **Apply Decay** (Prevents infinite uncertainty growth)
-        self.P *= self.P_decay
+        # # **Apply Decay** (Prevents infinite uncertainty growth)
+        # self.P *= self.P_decay
 
         # **Update the real robot position based on Kalman Filter state**
         self.x = self.state[0]

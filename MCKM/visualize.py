@@ -219,7 +219,7 @@ def draw_kalman_estimate(screen, robot):
     estimated_y = BORDER_TOP + robot.state[1] * SCALE
 
     # Draw estimated position (Red Dot)
-    pygame.draw.circle(screen, (255, 0, 0), (int(estimated_x), int(estimated_y)), 5)
+    pygame.draw.circle(screen, (255, 0, 0), (int(estimated_x), int(estimated_y)), 3)
 
     # Draw uncertainty ellipse
     draw_uncertainty_ellipse(screen, robot)
@@ -235,7 +235,6 @@ def draw_uncertainty_ellipse(screen, robot):
     # Compute eigenvalues and eigenvectors for scaling the ellipse
     eigenvalues, eigenvectors = np.linalg.eigh(P_pos)
 
-    # Limit maximum uncertainty size to prevent oversized ellipses
     eigenvalues = np.clip(eigenvalues, 0.0001, 0.05)
 
     # Convert eigenvalues to standard deviation for 95% confidence interval
