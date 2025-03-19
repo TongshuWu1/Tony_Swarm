@@ -84,12 +84,11 @@ class Exploration(Behavior):
     def __init__(self, robot: Robot):
         super().__init__(robot)
         self.spiral_timer = random.uniform(*SPIRAL_TIME_RANGE)
-        self.initial_angular_velocity = 1.2
+        self.initial_angular_velocity = 1.5
         self.mode = "spiral"
         self.choosing_angle = False
 
     def update(self, dt):
-        """ Runs the exploration behavior """
         if self.turning:
             self._handle_turn(dt)
         elif self.choosing_angle:
@@ -102,15 +101,14 @@ class Exploration(Behavior):
             self._move_forward(dt)
 
     def _spiral_movement(self, dt):
-        """ Moves in a spiral pattern """
         if self.spiral_timer <= 0:
             self._start_forward_movement()
             return
 
-        self.initial_angular_velocity -= 0.02 * dt
+        self.initial_angular_velocity -= 0.08 * dt
         linear_velocity = self.robot.max_speed
         angular_velocity = max(0.1, self.initial_angular_velocity) / self.robot.motor_distance
-        self.robot.set_motor_speeds(linear_velocity, angular_velocity)
+        self.robot.set_velocity(linear_velocity, angular_velocity)
         self.spiral_timer -= dt
 
         if self._near_wall():

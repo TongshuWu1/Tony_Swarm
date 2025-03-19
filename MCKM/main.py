@@ -4,7 +4,8 @@ from robot import Robot
 from visualize import *
 from landmark import Landmark
 from util import init_pygame, check_button_click
-from behavior import Behavior, Exploration  # Import the new autonomous behavior
+from behavior import Behavior, Exploration
+from estimation import OdometryEstimation
 
 # Initialize pygame and screen
 screen = init_pygame()
@@ -13,17 +14,19 @@ pygame.display.set_caption("2D Robot Simulation")
 # Initialize Robots and Behaviors
 robots = [
     Robot(WORLD_WIDTH_METERS / 3, WORLD_HEIGHT_METERS * 2 / 3, motor_distance=0.5),
-    # Robot(WORLD_WIDTH_METERS * 2 / 3, WORLD_HEIGHT_METERS * 2 / 3, motor_distance=0.5)
 ]
 
 behaviors = [Behavior(robot) for robot in robots]
 
-time_scale = 1.0  # Default time speed (1x normal speed)
-time_scale_step = 0.5  # How much to increase/decrease speed per click
-min_time_scale = 1.0  # Minimum speed (20% of normal speed)
-max_time_scale = 15.0  # Maximum speed (3x normal speed)
-path_update_interval = 0.2  # Plot path every 0.2 seconds
-path_time_accumulators = [0 for _ in robots]  # Separate accumulators for each robot
+# Initialize Odometry Estimation
+odometry_estimations = [OdometryEstimation([robot.x, robot.y, robot.angle]) for robot in robots]
+
+time_scale = 1.0
+time_scale_step = 0.5
+min_time_scale = 1.0
+max_time_scale = 15.0
+path_update_interval = 0.3
+path_time_accumulators = [0 for _ in robots]
 
 buttons = create_buttons(screen.get_width(), screen.get_height())
 
@@ -43,7 +46,7 @@ robot_paths = [[] for _ in robots]
 
 clock = pygame.time.Clock()
 running = True
-paused = True  # Track pause state
+paused = True
 mode = 1
 elapsed_time = 0
 
@@ -64,19 +67,19 @@ while running:
             elif check_button_click(buttons["restart"], mouse_pos):
                 robots = [
                     Robot(WORLD_WIDTH_METERS / 3, WORLD_HEIGHT_METERS * 2 / 3, motor_distance=0.5),
-                    Robot(WORLD_WIDTH_METERS * 2 / 3, WORLD_HEIGHT_METERS * 2 / 3, motor_distance=0.5)
                 ]
 
                 behaviors = [Behavior(robot) for robot in robots]
+                odometry_estimations = [OdometryEstimation([robot.x, robot.y, robot.angle]) for robot in robots]
                 robot_paths = [[] for _ in robots]
-                path_time_accumulators = [0 for _ in robots]  # Reset accumulators
+                path_time_accumulators = [0 for _ in robots]
                 paused = True
-                elapsed_time = 0  # Reset elapsed time
+                elapsed_time = 0
             elif check_button_click(buttons["speed_up"], mouse_pos):
                 time_scale = min(time_scale + time_scale_step, max_time_scale)
             elif check_button_click(buttons["slow_down"], mouse_pos):
                 time_scale = max(time_scale - time_scale_step, min_time_scale)
-            elif check_button_click(buttons["behavior"], mouse_pos):  # Toggle behavior on button click
+            elif check_button_click(buttons["behavior"], mouse_pos):
                 if mode == 1:
                     behaviors = [Exploration(robot) for robot in robots]
                     mode = 2
@@ -87,28 +90,25 @@ while running:
     if not paused:
         elapsed_time += dt
         for i, robot in enumerate(robots):
-            # Update robot movement with delta time
             robot.update(dt)
-            behaviors[i].update(dt)  # Pass dt to behavior
-            path_time_accumulators[i] += dt  # Accumulate elapsed time for each robot
+            behaviors[i].update(dt)
+            path_time_accumulators[i] += dt
             if path_time_accumulators[i] >= path_update_interval:
-                robot_paths[i].append((robot.x, robot.y))  # Store robot position
-                path_time_accumulators[i] = 0  # Reset accumulator for this robot
+                robot_paths[i].append((robot.x, robot.y))
+                path_time_accumulators[i] = 0
             visible_landmarks = robot.detect_landmarks(landmarks, FOV_ANGLE, VIEW_DISTANCE)
+            odometry_estimations[i].update(robot.velocity, robot.angular_velocity, dt)
 
-    # Draw elements
     draw_border(screen)
-    draw_landmarks(screen, visible_landmarks)  # Draw only visible landmarks
+    draw_landmarks(screen, visible_landmarks)
     for path in robot_paths:
         draw_path(screen, path)
-    for robot in robots:
-        draw_robot(screen, robot)  # Ensure this uses the updated position
+    for robot, odometry in zip(robots, odometry_estimations):
+        draw_robot(screen, robot)
         draw_fov(screen, robot.x, robot.y, robot.angle, FOV_ANGLE, VIEW_DISTANCE)
-        draw_kalman_estimate(screen, robot)
-        draw_actual_vs_predicted(screen, robot)
+        draw_estimated_position(screen, odometry.get_state(), odometry.get_covariance())
     draw_buttons(screen, buttons)
 
-    # Display motor speeds
     draw_motor_speeds(screen, robots[0].left_motor_speed, robots[0].right_motor_speed)
     draw_detected_landmarks(screen, visible_landmarks)
     draw_timer(screen, elapsed_time)

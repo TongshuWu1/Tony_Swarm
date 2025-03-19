@@ -1,7 +1,7 @@
 import pygame
 import math
-from environment import SCALE, BORDER_LEFT, BORDER_TOP
 import numpy as np
+from environment import SCALE, BORDER_LEFT, BORDER_TOP
 
 def draw_robot(screen, robot):
     """ Draws a pointier triangle representing the robot at (x, y) with direction angle """
@@ -200,64 +200,36 @@ def draw_time_speed(screen, time_scale):
     speed_text = font.render(f"Speed: {time_scale:.1f}x", True, text_color)
     screen.blit(speed_text, (10, 100))  # Position below the timer
 
-    def draw_timer_input_box(screen, input_box, timer_input, active):
-        font = pygame.font.Font(None, 32)
-        box_color = (0, 128, 255) if input_box.collidepoint(pygame.mouse.get_pos()) or active else (100, 100, 100)
-        pygame.draw.rect(screen, box_color, input_box, 2)
-        txt_surface = font.render(timer_input, True, (0, 0, 0))
-        screen.blit(txt_surface, (input_box.x + 5, input_box.y + 5))
+def draw_timer_input_box(screen, input_box, timer_input, active):
+    font = pygame.font.Font(None, 32)
+    box_color = (0, 128, 255) if input_box.collidepoint(pygame.mouse.get_pos()) or active else (100, 100, 100)
+    pygame.draw.rect(screen, box_color, input_box, 2)
+    txt_surface = font.render(timer_input, True, (0, 0, 0))
+    screen.blit(txt_surface, (input_box.x + 5, input_box.y + 5))
 
-    def draw_simulation_timer(screen, elapsed_time, time_limit):
-        font = pygame.font.Font(None, 28)
-        timer_text = font.render(f"Time: {elapsed_time:.2f}/{time_limit:.2f} s", True, (0, 0, 0))
-        screen.blit(timer_text, (10, 130))
-
-
-def draw_kalman_estimate(screen, robot):
-    """ Draws the Kalman Filter estimated position and uncertainty ellipse """
-    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
-    estimated_y = BORDER_TOP + robot.state[1] * SCALE
-
-    # Draw estimated position (Red Dot)
-    pygame.draw.circle(screen, (255, 0, 0), (int(estimated_x), int(estimated_y)), 3)
-
-    # Draw uncertainty ellipse
-    draw_uncertainty_ellipse(screen, robot)
-
-def draw_uncertainty_ellipse(screen, robot):
-    """ Draws an uncertainty ellipse representing Gaussian distribution around estimated position """
-    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
-    estimated_y = BORDER_TOP + robot.state[1] * SCALE
-
-    # Extract covariance matrix for position
-    P_pos = robot.P[:2, :2]  # Extract only position covariance
-
-    # Compute eigenvalues and eigenvectors for scaling the ellipse
-    eigenvalues, eigenvectors = np.linalg.eigh(P_pos)
-
-    eigenvalues = np.clip(eigenvalues, 0.0001, 0.05)
-
-    # Convert eigenvalues to standard deviation for 95% confidence interval
-    scale_x = 1.5 * math.sqrt(eigenvalues[0]) * SCALE
-    scale_y = 1.5 * math.sqrt(eigenvalues[1]) * SCALE
-
-    # Compute rotation angle
-    angle = math.degrees(math.atan2(eigenvectors[1, 0], eigenvectors[0, 0]))
-
-    # Create an ellipse surface
-    ellipse_surface = pygame.Surface((scale_x * 2, scale_y * 2), pygame.SRCALPHA)
-    pygame.draw.ellipse(ellipse_surface, (255, 0, 0, 100), (0, 0, scale_x * 2, scale_y * 2), 2)
-
-    # Rotate and blit the ellipse at the estimated position
-    rotated_ellipse = pygame.transform.rotate(ellipse_surface, -angle)
-    screen.blit(rotated_ellipse, (estimated_x - scale_x, estimated_y - scale_y))
+def draw_simulation_timer(screen, elapsed_time, time_limit):
+    font = pygame.font.Font(None, 28)
+    timer_text = font.render(f"Time: {elapsed_time:.2f}/{time_limit:.2f} s", True, (0, 0, 0))
+    screen.blit(timer_text, (10, 130))
 
 
-def draw_actual_vs_predicted(screen, robot):
-    """ Draws a line connecting the actual position to the predicted position """
-    true_x = BORDER_LEFT + robot.x * SCALE
-    true_y = BORDER_TOP + robot.y * SCALE
-    estimated_x = BORDER_LEFT + robot.state[0] * SCALE
-    estimated_y = BORDER_TOP + robot.state[1] * SCALE
 
-    pygame.draw.line(screen, (0, 0, 255), (true_x, true_y), (estimated_x, estimated_y), 2)
+
+def draw_estimated_position(screen, estimated_position, covariance):
+    """ Draws the estimated position of the robot with Gaussian error ellipse """
+    x, y, _ = estimated_position
+    screen_x = BORDER_LEFT + x * SCALE
+    screen_y = BORDER_TOP + y * SCALE
+
+    # Draw the estimated position
+    pygame.draw.circle(screen, (0, 0, 255), (int(screen_x), int(screen_y)), 5)
+
+    # Draw the Gaussian error ellipse
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance[:2, :2])
+    angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+    width, height = 2 * np.sqrt(eigenvalues) * SCALE
+
+    ellipse_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.ellipse(ellipse_surface, (0, 0, 255, 128), ellipse_surface.get_rect(), 1)
+    ellipse_surface = pygame.transform.rotate(ellipse_surface, -angle)
+    screen.blit(ellipse_surface, ellipse_surface.get_rect(center=(screen_x, screen_y)))

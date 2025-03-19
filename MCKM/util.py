@@ -4,7 +4,7 @@ from environment import SCREEN_WIDTH, SCREEN_HEIGHT
 def init_pygame():
     """ Initializes pygame and creates a fixed-size screen. """
     pygame.init()
-    return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
 
 def normalize_angle(angle):
     """ Ensures the angle remains within [0, 360] degrees. """
