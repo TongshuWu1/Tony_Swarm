@@ -1,107 +1,119 @@
-import numpy as np
-from collections import deque
+from pathNode import Node
 
-def find_enclosed_area(matrix, path):
-    rows, cols = len(matrix), len(matrix[0])
 
-    # Convert path list to a set for quick lookup (0-based indexing)
-    path_set = set((r, c) for r, c in path)
+def read_path():
+    global entryPoint, exitPoint
+    rows = int(input("Enter the number of rows: "))
+    cols = int(input("Enter the number of columns: "))
 
-    # Define directions (up, down, left, right)
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    matrixA = []
 
-    ### **Step 1: Mark all external areas using flood-fill**
-    exterior = set()
-    queue = deque()
+    # Read the matrix row by row
+    print("Enter the matrix row by row (comma separated):")
+    for i in range(rows):
+        row = list(map(int, input().split(',')))
+        matrixA.append(row)
 
-    # Add all boundary cells to the queue (except path points)
-    for r in range(rows):
-        for c in [0, cols - 1]:  # Left & right borders
-            if (r, c) not in path_set:
-                queue.append((r, c))
-        for c in range(cols):
-            if (0, c) not in path_set:
-                queue.append((0, c))
-            if (rows - 1, c) not in path_set:
-                queue.append((rows - 1, c))
+    entry_valid = False
+    while not entry_valid:
+        print("Enter the path entry point (row, col):")
+        entry_input = input().split(',')
+        if len(entry_input) == 2:
+            entryPoint = tuple(map(int, entry_input))
+            if (entryPoint[0] < 0 or entryPoint[0] >= rows or
+                    entryPoint[1] < 0 or entryPoint[1] >= cols or
+                    matrixA[entryPoint[0]][entryPoint[1]] not in (-1, 1)):
+                print("Invalid entry point:", entryPoint)
+            else:
+                print("Valid entry point:", entryPoint)
+                entry_valid = True
+        else:
+            print("Invalid input. Please enter the path entry point as 'row,col'.")
 
-    # Flood-fill to mark the exterior
-    while queue:
-        r, c = queue.popleft()
-        if (r, c) in exterior or (r, c) in path_set or not (0 <= r < rows and 0 <= c < cols):
-            continue
-        exterior.add((r, c))
-        for dr, dc in directions:
-            nr, nc = r + dr, c + dc
-            if (nr, nc) not in exterior and (nr, nc) not in path_set:
-                queue.append((nr, nc))
+    exit_valid = False
+    while not exit_valid:
+        print("Enter the path exit point (row, col):")
+        exit_input = input().split(',')
+        if len(exit_input) == 2:
+            exitPoint = tuple(map(int, exit_input))
+            if (exitPoint[0] < 0 or exitPoint[0] >= rows or
+                    exitPoint[1] < 0 or exitPoint[1] >= cols or
+                    matrixA[exitPoint[0]][exitPoint[1]] not in (-1, 1)):
+                print("Invalid exit point:", exitPoint)
+            else:
+                print("Valid exit point:", exitPoint)
+                exit_valid = True
+        else:
+            print("Invalid input. Please enter the path exit point as 'row,col'.")
 
-    ### **Step 2: Find a truly inside point**
-    start_point = None
-    for r in range(rows):
-        for c in range(cols):
-            if (r, c) not in exterior and (r, c) not in path_set:
-                start_point = (r, c)
-                break
-        if start_point:
+    return matrixA, entryPoint, exitPoint
+
+
+def print_matrix(matrixA):
+    for row in matrixA:
+        print(" ".join(map(str, row)))
+
+
+def search_path(matrixA, currentPoint, pathflag):
+    rows, cols = len(matrixA), len(matrixA[0])
+    row0, col0 = currentPoint
+    nextPoint = None
+    crossing_cell = None
+
+    def process_path(cells):
+        nonlocal crossing_cell
+        for (r, c) in cells:
+            if matrixA[r][c] == 2:  # Crossing detected
+                crossing_cell = (r, c)
+                print(f"Crossing detected at {(r, c)} (marked as 3)")
+                break  # Stop after marking the first crossing
+            elif matrixA[r][c] == 0:  # Mark new path
+                matrixA[r][c] = 2
+
+    if pathflag in ('i', 'r'):
+        for col in range(col0 + 1, cols):
+            if matrixA[row0][col] in (1, -1):  # Stop at barriers
+                nextPoint = (row0, col)
+                process_path([(row0, c) for c in range(col0, col)])
+                return nextPoint, 'c', crossing_cell
+
+    if pathflag in ('i', 'c'):
+        for row in range(row0 + 1, rows):
+            if matrixA[row][col0] in (1, -1):  # Stop at barriers
+                nextPoint = (row, col0)
+                process_path([(r, col0) for r in range(row0, row)])
+                return nextPoint, 'r', crossing_cell
+
+    return None, 'i', crossing_cell
+
+
+def compute_crossings(matrix, entry, exit_):
+    print("\nRunning Path Detection...")
+
+    currentPoint = exit_
+    pathflag = "i"
+
+    while currentPoint != entry:
+        nextPoint, pathflag, crossing_cell = search_path(matrix, currentPoint, pathflag)
+
+        if not nextPoint:
+            print("No more path found; stopping.")
             break
 
-    if not start_point:
-        return set(), False, set()  # No enclosed area found
+        if crossing_cell:
+            r, c = crossing_cell
+            matrix[r][c] = 3  # Mark the crossing point as 3
 
-    ### **Step 3: Flood-fill to find the enclosed area**
-    enclosed_area = set()
-    queue = deque([start_point])
-    visited = set()
-
-    while queue:
-        r, c = queue.popleft()
-        if (r, c) in visited or (r, c) in path_set or not (0 <= r < rows and 0 <= c < cols):
-            continue
-        enclosed_area.add((r, c))
-        visited.add((r, c))
-        for dr, dc in directions:
-            nr, nc = r + dr, c + dc
-            if (nr, nc) not in visited and (nr, nc) not in path_set:
-                queue.append((nr, nc))
-
-    ### **Step 4: Find cells containing 1 or -1 inside the enclosed area**
-    cells_with_values = {(r, c) for r, c in enclosed_area if matrix[r][c] in {1, -1}}
-    contains_value = bool(cells_with_values)
-
-    ### **Debugging output**
-    print("\n** Debugging Information **")
-    print("Path Set:", path_set)
-    print("Exterior Marked:", exterior)
-    print("Valid Start Point:", start_point)
-    print("Final Enclosed Area:", enclosed_area)
-
-    return enclosed_area, contains_value, cells_with_values
+        currentPoint = nextPoint
 
 
-# Example matrix
-matrix = np.array([
-    [0, 0, 0, 0, 0, 1, 0],
-    [0, -1, 0, 0, 0, 0, 1],
-    [1, 0, -1, 0, 0, 0, 0],
-    [0, 1, 0, -1, 0, 0, 0],
-    [0, 0, 1, 0, -1, 0, 0],
-    [0, 0, 0, 1, 0, -1, 0],
-    [0, 0, 0, 0, 1, 0, -1]
-])
+if __name__ == "__main__":
+    matrixA, entryPoint, exitPoint = read_path()
 
-# Adjusted path (0-based indexing)
-path = [
-    (2, 1), (2, 2), (3, 2), (4, 2), (4, 3), (4, 4),
-    (5, 4), (6, 4), (6, 5), (6, 6), (5, 6), (4, 6),
-    (3, 6), (2, 6), (1, 6), (1, 5), (1, 4), (1, 3),
-    (1, 2), (1, 1), (2, 1)
-]
+    print("\nInitial matrix:")
+    print_matrix(matrixA)
 
-# Run the function
-area, has_value, cells_with_values = find_enclosed_area(matrix, path)
+    compute_crossings(matrixA, entryPoint, exitPoint)
 
-# Output results
-print("\nEnclosed Area:", area)
-print("Contains 1 or -1:", has_value)
-print("Cells containing 1 or -1:", cells_with_values)
+    print("\nFinal matrix with paths marked as 2 and crossings as 3:")
+    print_matrix(matrixA)

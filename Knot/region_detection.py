@@ -1,5 +1,6 @@
 from pathNode import Node
 from collections import deque
+from pathNode import Node
 
 
 
@@ -94,6 +95,36 @@ def handle_loop(matrixA, loop):
     print("Contains 1 or -1:", contains_value)
     print("Cells containing 1 or -1:", cells_with_values)
 
+    rows, cols = len(matrixA), len(matrixA[0])
+    agent_points = set()
+
+    print("\nSearching for value 3 (cross) and then agents:")
+
+    for (r, c) in cells_with_values:
+        print(f"\nFor cell with 1/-1 at ({r}, {c}):")
+
+        # Check row for 3s
+        for col in range(cols):
+            if matrixA[r][col] == 3:
+                print(f"  Found 3 at ({r}, {col}) in the same row.")
+                for row_check in range(rows):
+                    if matrixA[row_check][col] in {1, -1}:
+                        print(f"    Agent found at ({row_check}, {col}) from cross.")
+                        agent_points.add((row_check, col))
+
+        # Check column for 3s
+        for row in range(rows):
+            if matrixA[row][c] == 3:
+                print(f"  Found 3 at ({row}, {c}) in the same column.")
+                for col_check in range(cols):
+                    if matrixA[row][col_check] in {1, -1}:
+                        print(f"    Agent found at ({row}, {col_check}) from cross.")
+                        agent_points.add((row, col_check))
+
+    return agent_points
+
+
+
 
 def find_enclosed_area(matrix, looppath):
     rows, cols = len(matrix), len(matrix[0])
@@ -172,21 +203,17 @@ def find_enclosed_area(matrix, looppath):
     return enclosed_area, contains_value, cells_with_values
 
 
-
-def trace_knot_path(matrixA, entryPoint, exitPoint):
-    """Traces the full rope path, ensuring all steps are recorded and detects multiple loops."""
-    currentPoint = entryPoint
-    path_list = []  # Store full path
-    path_set = set()  # Store visited points for quick loop detection
-    checked_cells = set()  # Store cells that have been checked for loops
+def mark_inverse_path(matrixA, entryPoint, exitPoint):
+    """Marks the path from exit to entry, identifying and marking crosses."""
+    currentPoint = exitPoint
 
     # Determine the first search direction
-    direction = find_starting_direction(matrixA, entryPoint[0], entryPoint[1])
+    direction = find_starting_direction(matrixA, exitPoint[0], exitPoint[1])
     if not direction:
         print("No valid path found from the starting point.")
-        return []
+        return
 
-    while currentPoint != exitPoint:
+    while currentPoint != entryPoint:
         nextPoint = search_next_turn(matrixA, currentPoint[0], currentPoint[1], direction)
 
         if not nextPoint:
@@ -200,25 +227,72 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         if direction == "row":  # Moving along a row
             step = 1 if col2 > col1 else -1
             for c in range(col1 + step, col2 + step, step):  # Avoid duplicating starting point
-                loop = detect_loop(path_list, path_set, (row1, c))
-                if loop:
-                    handle_loop(matrixA, loop)
-                path_list.append((row1, c))
-                path_set.add((row1, c))
+                if matrixA[row1][c] in {1, -1}:
+                    continue  # Skip cells with values 1 and -1
+                if matrixA[row1][c] == 2:
+                    matrixA[row1][c] = 3  # Mark crossing
+                else:
+                    matrixA[row1][c] = 2  # Mark path
 
         else:  # Moving along a column
             step = 1 if row2 > row1 else -1
             for r in range(row1 + step, row2 + step, step):  # Avoid duplicating starting point
+                if matrixA[r][col1] in {1, -1}:
+                    continue  # Skip cells with values 1 and -1
+                if matrixA[r][col1] == 2:
+                    matrixA[r][col1] = 3  # Mark crossing
+                else:
+                    matrixA[r][col1] = 2  # Mark path
+
+        currentPoint = nextPoint
+        direction = "col" if direction == "row" else "row"
+
+def trace_knot_path(matrixA, entryPoint, exitPoint):
+    """Traces the full rope path, ensuring all steps are recorded and detects multiple loops."""
+    currentPoint = entryPoint
+    path_list = []
+    path_set = set()
+    all_agents = set()
+
+    direction = find_starting_direction(matrixA, entryPoint[0], entryPoint[1])
+    if not direction:
+        print("No valid path found from the starting point.")
+        return [], set()
+
+    while currentPoint != exitPoint:
+        nextPoint = search_next_turn(matrixA, currentPoint[0], currentPoint[1], direction)
+
+        if not nextPoint:
+            print("No more path found; stopping.")
+            break
+
+        row1, col1 = currentPoint
+        row2, col2 = nextPoint
+
+        if direction == "row":
+            step = 1 if col2 > col1 else -1
+            for c in range(col1 + step, col2 + step, step):
+                loop = detect_loop(path_list, path_set, (row1, c))
+                if loop:
+                    agents = handle_loop(matrixA, loop)
+                    all_agents.update(agents)
+                path_list.append((row1, c))
+                path_set.add((row1, c))
+        else:
+            step = 1 if row2 > row1 else -1
+            for r in range(row1 + step, row2 + step, step):
                 loop = detect_loop(path_list, path_set, (r, col1))
                 if loop:
-                    handle_loop(matrixA, loop)
+                    agents = handle_loop(matrixA, loop)
+                    all_agents.update(agents)
                 path_list.append((r, col1))
                 path_set.add((r, col1))
 
         currentPoint = nextPoint
-        direction = "col" if direction == "row" else "row"  # Switch between row/col search
+        direction = "col" if direction == "row" else "row"
 
-    return path_list
+    return path_list, all_agents
+
 
 
 
@@ -230,8 +304,18 @@ if __name__ == "__main__":
     print(f"\nEntry point: {entryPoint}")
     print(f"Exit point: {exitPoint}")
 
-    # Compute the full rope path
-    full_path = trace_knot_path(matrixA, entryPoint, exitPoint)
+    # Mark the inverse path
+    mark_inverse_path(matrixA, entryPoint, exitPoint)
+
+    print("\nMatrix after marking inverse path and crosses:")
+    print_matrix(matrixA)
+
+    # Trace full path and detect loops
+    full_path, agent_points = trace_knot_path(matrixA, entryPoint, exitPoint)
 
     print("\nFull Rope Path (All Cells):")
-    print(full_path)  # Print the list of all path cells
+    print(full_path)
+
+    print("\n🧠 Final Agent Points Detected:")
+    for agent in agent_points:
+        print(f"  Agent at: {agent}")
