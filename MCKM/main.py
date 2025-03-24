@@ -19,8 +19,8 @@ robots = [
 behaviors = [Behavior(robot) for robot in robots]
 
 # Initialize Odometry Estimation
+# Initialize Odometry Estimation
 odometry_estimations = [OdometryEstimation([robot.x, robot.y, robot.angle]) for robot in robots]
-
 time_scale = 1.0
 time_scale_step = 0.5
 min_time_scale = 1.0

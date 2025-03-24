@@ -93,12 +93,10 @@ def handle_loop(matrixA, loop, processed_regions):
 
     enclosed_area, contains_value, cells_with_values = find_enclosed_area(matrixA, loop)
 
-    # Avoid reprocessing if area has already been handled
     if any(cell in processed_regions for cell in enclosed_area):
         print("This loop's region was already processed. Skipping.")
         return set()
 
-    # Mark these cells as processed to avoid future duplication
     processed_regions.update(enclosed_area)
     processed_regions.update(loop)
     print("Enclosed Area:", enclosed_area)
@@ -107,44 +105,48 @@ def handle_loop(matrixA, loop, processed_regions):
 
     rows, cols = len(matrixA), len(matrixA[0])
     agent_points = set()
+    unassigned_agents = set()
 
     print("\nSearching for value 3 (cross) and then agents:")
 
     for (r, c) in cells_with_values:
         print(f"\nFor cell with 1/-1 at ({r}, {c}):")
 
-        # Check row for 3s
         for col in range(cols):
             if matrixA[r][col] == 3:
                 print(f"  Found 3 at ({r}, {col}) in the same row.")
                 for row_check in range(rows):
                     if matrixA[row_check][col] in {1, -1}:
-                        print(f"    Agent found at ({row_check}, {col}) from cross.")
                         agent = (row_check, col)
+                        if agent in unassigned_agents:
+                            print(f"    Agent at {agent} was unassigned previously — skipping.")
+                            continue
                         if agent in agent_points:
                             print(f"    Agent at {agent} is already assigned — unassigning.")
                             agent_points.remove(agent)
+                            unassigned_agents.add(agent)
                         else:
                             print(f"    Assigning agent at {agent}.")
                             agent_points.add(agent)
 
-        # Check column for 3s
         for row in range(rows):
             if matrixA[row][c] == 3:
                 print(f"  Found 3 at ({row}, {c}) in the same column.")
                 for col_check in range(cols):
                     if matrixA[row][col_check] in {1, -1}:
-                        print(f"    Agent found at ({row}, {col_check}) from cross.")
                         agent = (row, col_check)
+                        if agent in unassigned_agents:
+                            print(f"    Agent at {agent} was unassigned previously — skipping.")
+                            continue
                         if agent in agent_points:
                             print(f"    Agent at {agent} is already assigned — unassigning.")
                             agent_points.remove(agent)
+                            unassigned_agents.add(agent)
                         else:
                             print(f"    Assigning agent at {agent}.")
                             agent_points.add(agent)
 
     return agent_points
-
 
 
 

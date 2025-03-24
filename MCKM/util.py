@@ -21,3 +21,4 @@ def angle_difference(target, current):
 def check_button_click(button, mouse_pos):
     """ Checks if the mouse click is inside a button. """
     return button.collidepoint(mouse_pos)
+

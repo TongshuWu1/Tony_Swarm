@@ -1,99 +1,103 @@
 import pygame
 import math
 import numpy as np
-from environment import SCALE, BORDER_LEFT, BORDER_TOP
+from environment import *
 
+def to_screen_coords(x, y):
+    x_screen = BORDER_LEFT + x * SCALE
+    y_screen = BORDER_TOP + (WORLD_HEIGHT_METERS - y) * SCALE
+    return x_screen, y_screen
 def draw_robot(screen, robot):
     """ Draws a pointier triangle representing the robot at (x, y) with direction angle """
-    x = BORDER_LEFT + robot.x * SCALE  # Convert meters to pixel position
-    y = BORDER_TOP + robot.y * SCALE
-
-    # Ensure robot size is **always the same real-world size** in pixels
-    size = robot.size * SCALE  # Convert meters to pixels
+    x, y = to_screen_coords(robot.x, robot.y)
+    size = robot.size * SCALE
 
     # Define triangle points relative to the robot's center
-    p1 = (x + math.cos(math.radians(robot.angle)) * size, y - math.sin(math.radians(robot.angle)) * size)
-    p2 = (x + math.cos(math.radians(robot.angle + 140)) * (size * 0.65), y - math.sin(math.radians(robot.angle + 140)) * (size * 0.65))
-    p3 = (x + math.cos(math.radians(robot.angle - 140)) * (size * 0.65), y - math.sin(math.radians(robot.angle - 140)) * (size * 0.65))
+    p1 = (x + math.cos(math.radians(robot.angle)) * size,
+          y - math.sin(math.radians(robot.angle)) * size)
+    p2 = (x + math.cos(math.radians(robot.angle + 140)) * (size * 0.65),
+          y - math.sin(math.radians(robot.angle + 140)) * (size * 0.65))
+    p3 = (x + math.cos(math.radians(robot.angle - 140)) * (size * 0.65),
+          y - math.sin(math.radians(robot.angle - 140)) * (size * 0.65))
 
     pygame.draw.polygon(screen, (200, 0, 0), [p1, p2, p3])
+
 
 def draw_landmarks(screen, landmarks):
     """ Draws all landmarks on the screen """
     for landmark in landmarks:
-        x = BORDER_LEFT + landmark.x * SCALE  # Convert meters to pixels
-        y = BORDER_TOP + landmark.y * SCALE
-        size = landmark.size * SCALE  # Convert meters to pixels
+        x, y = to_screen_coords(landmark.x, landmark.y)
+        size = landmark.size * SCALE
 
         if landmark.shape == "circle":
             pygame.draw.circle(screen, landmark.color, (int(x), int(y)), int(size / 2))
-
         elif landmark.shape == "square":
             pygame.draw.rect(screen, landmark.color, (int(x - size / 2), int(y - size / 2), int(size), int(size)))
-
         elif landmark.shape == "triangle":
             p1 = (x, y - size / 2)
             p2 = (x - size / 2, y + size / 2)
             p3 = (x + size / 2, y + size / 2)
             pygame.draw.polygon(screen, landmark.color, [p1, p2, p3])
 
-def draw_fov(screen, robot_x, robot_y, robot_angle, fov_angle, view_distance):
-    """ Draws the robot's field of view as a cone """
-    x = BORDER_LEFT + robot_x * SCALE  # Convert meters to pixels
-    y = BORDER_TOP + robot_y * SCALE
-
-    fov_half_angle = fov_angle / 2
-    angle_left = robot_angle - fov_half_angle
-    angle_right = robot_angle + fov_half_angle
-
-    # Calculate the points for the FOV cone
-    p1 = (x + math.cos(math.radians(angle_left)) * view_distance * SCALE, y - math.sin(math.radians(angle_left)) * view_distance * SCALE)
-    p2 = (x + math.cos(math.radians(angle_right)) * view_distance * SCALE, y - math.sin(math.radians(angle_right)) * view_distance * SCALE)
-
-    # Draw FOV as a cone (triangle)
-    pygame.draw.polygon(screen, (0, 255, 0), [ (x, y), p1, p2 ])  # Green FOV cone
-
-def draw_path(screen, path):
-    """ Draws a continuous path showing the full movement history of the robot. """
-    if len(path) < 2:
-        return  # No path to draw yet
-
-    # Convert path points to screen pixels
-    pixel_path = [(BORDER_LEFT + x * SCALE, BORDER_TOP + y * SCALE) for x, y in path]
-
-    # Draw small circles at each saved path position
-    for point in pixel_path:
-        pygame.draw.lines(screen, (0, 0, 255), False, pixel_path, 1)
-
-
 
 def draw_fov(screen, robot_x, robot_y, robot_angle, fov_angle, view_distance):
     """ Draws the robot's field of view as a cone with a circular base, pointing forward. """
-    x = BORDER_LEFT + robot_x * SCALE  # Convert meters to pixels
-    y = BORDER_TOP + robot_y * SCALE
-
+    x, y = to_screen_coords(robot_x, robot_y)
     fov_half_angle = fov_angle / 2
-
-    # Calculate the correct left and right boundary angles (relative to the robot's forward direction)
     angle_left = robot_angle + fov_half_angle
     angle_right = robot_angle - fov_half_angle
 
-    # Calculate the points for the FOV cone outline
     p1 = (x + math.cos(math.radians(angle_left)) * view_distance * SCALE,
           y - math.sin(math.radians(angle_left)) * view_distance * SCALE)
-
     p2 = (x + math.cos(math.radians(angle_right)) * view_distance * SCALE,
           y - math.sin(math.radians(angle_right)) * view_distance * SCALE)
 
-    # Draw the outline of the FOV as a cone
-    pygame.draw.line(screen, (0, 255, 0), (x, y), p1, 2)  # Left side of the cone
-    pygame.draw.line(screen, (0, 255, 0), (x, y), p2, 2)  # Right side of the cone
+    # Draw lines for FOV
+    pygame.draw.line(screen, (0, 255, 0), (x, y), p1, 2)
+    pygame.draw.line(screen, (0, 255, 0), (x, y), p2, 2)
 
-    # Draw the circular base of the cone
+    # Draw arc representing circular base
     pygame.draw.arc(screen, (0, 255, 0),
                     (x - view_distance * SCALE, y - view_distance * SCALE,
                      2 * view_distance * SCALE, 2 * view_distance * SCALE),
                     math.radians(angle_right), math.radians(angle_left), 1)
+
+def draw_path(screen, path):
+    """ Draws a continuous path showing the full movement history of the robot. """
+    if len(path) < 2:
+        return
+
+    pixel_path = [to_screen_coords(x, y) for x, y in path]
+    pygame.draw.lines(screen, (0, 0, 255), False, pixel_path, 1)
+
+
+# def draw_fov(screen, robot_x, robot_y, robot_angle, fov_angle, view_distance):
+#     """ Draws the robot's field of view as a cone with a circular base, pointing forward. """
+#     x = BORDER_LEFT + robot_x * SCALE  # Convert meters to pixels
+#     y = BORDER_TOP + robot_y * SCALE
+#
+#     fov_half_angle = fov_angle / 2
+#
+#     # Calculate the correct left and right boundary angles (relative to the robot's forward direction)
+#     angle_left = robot_angle + fov_half_angle
+#     angle_right = robot_angle - fov_half_angle
+#
+#     # Calculate the points for the FOV cone outline
+#     p1 = (x + math.cos(math.radians(angle_left)) * view_distance * SCALE,
+#           y - math.sin(math.radians(angle_left)) * view_distance * SCALE)
+#
+#     p2 = (x + math.cos(math.radians(angle_right)) * view_distance * SCALE,
+#           y - math.sin(math.radians(angle_right)) * view_distance * SCALE)
+#
+#     # Draw the outline of the FOV as a cone
+#     pygame.draw.line(screen, (0, 255, 0), (x, y), p1, 2)  # Left side of the cone
+#     pygame.draw.line(screen, (0, 255, 0), (x, y), p2, 2)  # Right side of the cone
+#
+#     # Draw the circular base of the cone
+#     pygame.draw.arc(screen, (0, 255, 0),
+#                     (x - view_distance * SCALE, y - view_distance * SCALE,
+#                      2 * view_distance * SCALE, 2 * view_distance * SCALE),
+#                     math.radians(angle_right), math.radians(angle_left), 1)
 
 def draw_motor_speeds(screen, left_speed, right_speed):
     """ Display the current motor speeds on the screen. """
@@ -218,13 +222,10 @@ def draw_simulation_timer(screen, elapsed_time, time_limit):
 def draw_estimated_position(screen, estimated_position, covariance):
     """ Draws the estimated position of the robot with Gaussian error ellipse """
     x, y, _ = estimated_position
-    screen_x = BORDER_LEFT + x * SCALE
-    screen_y = BORDER_TOP + y * SCALE
+    x, y = to_screen_coords(x, y)
 
-    # Draw the estimated position
-    pygame.draw.circle(screen, (0, 0, 255), (int(screen_x), int(screen_y)), 5)
+    pygame.draw.circle(screen, (0, 0, 255), (int(x), int(y)), 5)
 
-    # Draw the Gaussian error ellipse
     eigenvalues, eigenvectors = np.linalg.eigh(covariance[:2, :2])
     angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
     width, height = 2 * np.sqrt(eigenvalues) * SCALE
@@ -232,4 +233,4 @@ def draw_estimated_position(screen, estimated_position, covariance):
     ellipse_surface = pygame.Surface((width, height), pygame.SRCALPHA)
     pygame.draw.ellipse(ellipse_surface, (0, 0, 255, 128), ellipse_surface.get_rect(), 1)
     ellipse_surface = pygame.transform.rotate(ellipse_surface, -angle)
-    screen.blit(ellipse_surface, ellipse_surface.get_rect(center=(screen_x, screen_y)))
+    screen.blit(ellipse_surface, ellipse_surface.get_rect(center=(x, y)))

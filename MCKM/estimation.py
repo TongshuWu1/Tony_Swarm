@@ -11,7 +11,7 @@ class OdometryEstimation:
         predicted_state = self.motion_model(self.state, v, omega, dt)
         noise = np.random.normal(0, self.noise_std)
         self.state = predicted_state + noise
-        self.covariance += np.diag(self.noise_std) ** 2
+        self.covariance += np.diag(self.noise_std)
 
     def get_state(self):
         return self.state
@@ -20,8 +20,13 @@ class OdometryEstimation:
         return self.covariance
 
     def motion_model(self, state, v, omega, dt):
-        x, y, theta = state
+        x, y, theta_deg = state
+        theta = np.radians(theta_deg)
+
         theta += omega * dt
         x += v * dt * np.cos(theta)
         y += v * dt * np.sin(theta)
-        return np.array([x, y, theta])
+
+        theta_deg = np.degrees(theta) % 360
+        return np.array([x, y, theta_deg])
+
