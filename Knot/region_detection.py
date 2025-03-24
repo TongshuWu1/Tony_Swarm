@@ -87,10 +87,20 @@ def detect_loop(path_list, path_set, current_point):
         loop_start = path_list.index(current_point)
         return path_list[loop_start:]
     return None
-def handle_loop(matrixA, loop):
-    print("\nLoop Detected! ")
+def handle_loop(matrixA, loop, processed_regions):
+    print("\nLoop Detected!")
     print("Loop Path:", loop)
+
     enclosed_area, contains_value, cells_with_values = find_enclosed_area(matrixA, loop)
+
+    # Avoid reprocessing if area has already been handled
+    if any(cell in processed_regions for cell in enclosed_area):
+        print("This loop's region was already processed. Skipping.")
+        return set()
+
+    # Mark these cells as processed to avoid future duplication
+    processed_regions.update(enclosed_area)
+    processed_regions.update(loop)
     print("Enclosed Area:", enclosed_area)
     print("Contains 1 or -1:", contains_value)
     print("Cells containing 1 or -1:", cells_with_values)
@@ -110,7 +120,13 @@ def handle_loop(matrixA, loop):
                 for row_check in range(rows):
                     if matrixA[row_check][col] in {1, -1}:
                         print(f"    Agent found at ({row_check}, {col}) from cross.")
-                        agent_points.add((row_check, col))
+                        agent = (row_check, col)
+                        if agent in agent_points:
+                            print(f"    Agent at {agent} is already assigned — unassigning.")
+                            agent_points.remove(agent)
+                        else:
+                            print(f"    Assigning agent at {agent}.")
+                            agent_points.add(agent)
 
         # Check column for 3s
         for row in range(rows):
@@ -119,7 +135,13 @@ def handle_loop(matrixA, loop):
                 for col_check in range(cols):
                     if matrixA[row][col_check] in {1, -1}:
                         print(f"    Agent found at ({row}, {col_check}) from cross.")
-                        agent_points.add((row, col_check))
+                        agent = (row, col_check)
+                        if agent in agent_points:
+                            print(f"    Agent at {agent} is already assigned — unassigning.")
+                            agent_points.remove(agent)
+                        else:
+                            print(f"    Assigning agent at {agent}.")
+                            agent_points.add(agent)
 
     return agent_points
 
@@ -253,6 +275,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
     path_list = []
     path_set = set()
     all_agents = set()
+    processed_regions = set()
 
     direction = find_starting_direction(matrixA, entryPoint[0], entryPoint[1])
     if not direction:
@@ -274,7 +297,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             for c in range(col1 + step, col2 + step, step):
                 loop = detect_loop(path_list, path_set, (row1, c))
                 if loop:
-                    agents = handle_loop(matrixA, loop)
+                    agents = handle_loop(matrixA, loop, processed_regions)
                     all_agents.update(agents)
                 path_list.append((row1, c))
                 path_set.add((row1, c))
@@ -283,7 +306,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             for r in range(row1 + step, row2 + step, step):
                 loop = detect_loop(path_list, path_set, (r, col1))
                 if loop:
-                    agents = handle_loop(matrixA, loop)
+                    agents = handle_loop(matrixA, loop, processed_regions)
                     all_agents.update(agents)
                 path_list.append((r, col1))
                 path_set.add((r, col1))
