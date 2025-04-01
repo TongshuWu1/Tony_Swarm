@@ -4,10 +4,11 @@
 
 #define TFMINI_RX_PIN 9
 #define TFMINI_TX_PIN 8
+
 HardwareSerial tfminiSerial(1);
 
-// MAC address of the receiver ESP32
-uint8_t receiverMAC[] = {0x30, 0x30, 0xF9, 0x34, 0x52, 0x90};
+// MAC address of receiver ESP32
+uint8_t receiverMAC[] = {0xDC, 0xDA, 0x0C, 0x57, 0xA7, 0xB8};
 
 void setup() {
   Serial.begin(115200);
@@ -56,16 +57,15 @@ void loop() {
       if (checksum == buf[8]) {
         uint16_t distance = buf[2] | (buf[3] << 8);
 
-        // Send only 2 bytes + checksum
         uint8_t payload[3];
-        payload[0] = distance & 0xFF;
-        payload[1] = (distance >> 8) & 0xFF;
-        payload[2] = (payload[0] + payload[1]) & 0xFF;
+        payload[0] = 'D';
+        payload[1] = distance & 0xFF;
+        payload[2] = (distance >> 8) & 0xFF;
 
         esp_err_t result = esp_now_send(receiverMAC, payload, 3);
 
         if (result == ESP_OK) {
-          Serial.print("Sent: ");
+          Serial.print("Sent Distance: ");
           Serial.println(distance);
         } else {
           Serial.println("Send failed");
