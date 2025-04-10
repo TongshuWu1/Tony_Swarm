@@ -1,8 +1,5 @@
 from pathNode import Node
 from collections import deque
-from pathNode import Node
-
-
 
 def read_path():
     """Reads the matrix and entry/exit points from user input."""
@@ -87,13 +84,15 @@ def detect_loop(path_list, path_set, current_point):
         loop_start = path_list.index(current_point)
         return path_list[loop_start:]
     return None
-def handle_loop(matrixA, loop, processed_regions):
+def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint):
     print("\nLoop Detected!")
     print("Loop Path:", loop)
 
     enclosed_area, contains_value, cells_with_values = find_enclosed_area(matrixA, loop)
 
-    if any(cell in processed_regions for cell in enclosed_area):
+    # Check if the enclosed area is partially covered
+    uncovered_area = enclosed_area - processed_regions
+    if not uncovered_area:
         print("This loop's region was already processed. Skipping.")
         return set()
 
@@ -103,52 +102,43 @@ def handle_loop(matrixA, loop, processed_regions):
     print("Contains 1 or -1:", contains_value)
     print("Cells containing 1 or -1:", cells_with_values)
 
-    rows, cols = len(matrixA), len(matrixA[0])
     agent_points = set()
-    unassigned_agents = set()
 
-    print("\nSearching for value 3 (cross) and then agents:")
+    print("\nAssigning agents to the four corners of the enclosing loop:")
 
-    for (r, c) in cells_with_values:
-        print(f"\nFor cell with 1/-1 at ({r}, {c}):")
+    # Find the smallest and largest x and y coordinates in the loop
+    min_x = min(r for r, c in loop)
+    max_x = max(r for r, c in loop)
+    min_y = min(c for r, c in loop)
+    max_y = max(c for r, c in loop)
 
-        for col in range(cols):
-            if matrixA[r][col] == 3:
-                print(f"  Found 3 at ({r}, {col}) in the same row.")
-                for row_check in range(rows):
-                    if matrixA[row_check][col] in {1, -1}:
-                        agent = (row_check, col)
-                        if agent in unassigned_agents:
-                            print(f"    Agent at {agent} was unassigned previously — skipping.")
-                            continue
-                        if agent in agent_points:
-                            print(f"    Agent at {agent} is already assigned — unassigning.")
-                            agent_points.remove(agent)
-                            unassigned_agents.add(agent)
-                        else:
-                            print(f"    Assigning agent at {agent}.")
-                            agent_points.add(agent)
+    # Define the four corner points
+    corner_points = [
+        (min_x, min_y),  # Top-left corner
+        (min_x, max_y),  # Top-right corner
+        (max_x, max_y),  # Bottom-right corner
+        (max_x, min_y)   # Bottom-left corner
+    ]
 
-        for row in range(rows):
-            if matrixA[row][c] == 3:
-                print(f"  Found 3 at ({row}, {c}) in the same column.")
-                for col_check in range(cols):
-                    if matrixA[row][col_check] in {1, -1}:
-                        agent = (row, col_check)
-                        if agent in unassigned_agents:
-                            print(f"    Agent at {agent} was unassigned previously — skipping.")
-                            continue
-                        if agent in agent_points:
-                            print(f"    Agent at {agent} is already assigned — unassigning.")
-                            agent_points.remove(agent)
-                            unassigned_agents.add(agent)
-                        else:
-                            print(f"    Assigning agent at {agent}.")
-                            agent_points.add(agent)
+    # Assign agents to the four corners if they have a value of 1 or -1
+    for corner in corner_points:
+        if matrixA[corner[0]][corner[1]] in {1, -1}:
+            agent_points.add(corner)
+            print(f"Assigned agent at: {corner}")
+
+    # Add entry and exit points to the agent list if they have a value of 1 or -1
+    if matrixA[entryPoint[0]][entryPoint[1]] in {1, -1}:
+        agent_points.add(entryPoint)
+        print(f"Assigned agent at entry point: {entryPoint}")
+    if matrixA[exitPoint[0]][exitPoint[1]] in {1, -1}:
+        agent_points.add(exitPoint)
+        print(f"Assigned agent at exit point: {exitPoint}")
+
+    print("\nFinal Agent Points Detected:")
+    for agent in agent_points:
+        print(f"  Agent at: {agent}")
 
     return agent_points
-
-
 
 def find_enclosed_area(matrix, looppath):
     rows, cols = len(matrix), len(matrix[0])
@@ -158,10 +148,8 @@ def find_enclosed_area(matrix, looppath):
     # Define directions
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
-
     exterior = set()
     queue = deque()
-
 
     for r in range(rows):
         for c in [0, cols - 1]:  # Left & right borders
@@ -184,7 +172,6 @@ def find_enclosed_area(matrix, looppath):
             if (nr, nc) not in exterior and (nr, nc) not in path_set:
                 queue.append((nr, nc))
 
-
     start_point = None
     for r in range(rows):
         for c in range(cols):
@@ -196,7 +183,6 @@ def find_enclosed_area(matrix, looppath):
 
     if not start_point:
         return set(), False, set()  # No enclosed area found
-
 
     enclosed_area = set()
     queue = deque([start_point])
@@ -213,19 +199,15 @@ def find_enclosed_area(matrix, looppath):
             if (nr, nc) not in visited and (nr, nc) not in path_set:
                 queue.append((nr, nc))
 
-
     cells_with_values = {(r, c) for r, c in enclosed_area if matrix[r][c] in {1, -1}}
     contains_value = bool(cells_with_values)
 
-
     print("\n** Debugging Information **")
-    # print("Path Set:", path_set)
     print("Exterior Marked:", exterior)
     print("Valid Start Point:", start_point)
     print("Final Enclosed Area:", enclosed_area)
 
     return enclosed_area, contains_value, cells_with_values
-
 
 def mark_inverse_path(matrixA, entryPoint, exitPoint):
     """Marks the path from exit to entry, identifying and marking crosses."""
@@ -299,7 +281,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             for c in range(col1 + step, col2 + step, step):
                 loop = detect_loop(path_list, path_set, (row1, c))
                 if loop:
-                    agents = handle_loop(matrixA, loop, processed_regions)
+                    agents = handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint)
                     all_agents.update(agents)
                 path_list.append((row1, c))
                 path_set.add((row1, c))
@@ -308,7 +290,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             for r in range(row1 + step, row2 + step, step):
                 loop = detect_loop(path_list, path_set, (r, col1))
                 if loop:
-                    agents = handle_loop(matrixA, loop, processed_regions)
+                    agents = handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint)
                     all_agents.update(agents)
                 path_list.append((r, col1))
                 path_set.add((r, col1))
@@ -317,10 +299,6 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         direction = "col" if direction == "row" else "row"
 
     return path_list, all_agents
-
-
-
-
 
 if __name__ == "__main__":
     matrixA, entryPoint, exitPoint = read_path()

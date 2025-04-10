@@ -7,8 +7,8 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
   char type = incomingData[0];
   uint16_t value = incomingData[1] | (incomingData[2] << 8);
 
-  Serial.write(type);               // 'D' or 'P'
-  Serial.write((uint8_t*)&value, 2);  // 2-byte value
+  Serial.write(type);
+  Serial.write((uint8_t*)&value, 2);
 }
 
 void setup() {
@@ -18,4 +18,6 @@ void setup() {
   esp_now_register_recv_cb(OnDataRecv);
 }
 
-void loop() {}
+void loop() {
+  // Nothing needed
+}

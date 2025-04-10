@@ -1,8 +1,9 @@
 import math
+import numpy as np
 from environment import WORLD_WIDTH_METERS, WORLD_HEIGHT_METERS
 
 class Robot:
-    def __init__(self, x, y, angle=90, size=0.5, motor_distance=0.5, max_speed=1.0):
+    def __init__(self, x, y, angle=90, size=0.5, motor_distance=0.5, max_speed=1.0, noise_std=(0.1, 0.1, 0.05)):
         self.x = x
         self.y = y
         self.angle = angle  # Degrees, 0 points to the right, 90 up
@@ -17,6 +18,7 @@ class Robot:
         self.velocity = 0.0
         self.angular_velocity = 0.0
 
+        self.noise_std = np.array(noise_std)
         self.last_visible_landmarks = set()
 
     def set_motor_speeds(self, left_speed=0.0, right_speed=0.0):
@@ -37,9 +39,13 @@ class Robot:
         self.velocity = (vl + vr) / 2
         self.angular_velocity = (vr - vl) / L
 
+        # Add noise to the robot's motion
+        v_noisy = self.velocity + np.random.normal(0, self.noise_std[0])
+        omega_noisy = self.angular_velocity + np.random.normal(0, self.noise_std[2])
+
         theta = math.radians(self.angle)
-        delta_x = self.velocity * math.cos(theta) * dt
-        delta_y = self.velocity * math.sin(theta) * dt  # ✅ Removed Y inversion here
+        delta_x = v_noisy * math.cos(theta) * dt
+        delta_y = v_noisy * math.sin(theta) * dt
 
         new_x = self.x + delta_x
         new_y = self.y + delta_y
@@ -50,7 +56,7 @@ class Robot:
         self.y = max(half_size, min(WORLD_HEIGHT_METERS - half_size, new_y))
 
         # Orientation update
-        self.angle = (self.angle + math.degrees(self.angular_velocity * dt)) % 360
+        self.angle = (self.angle + math.degrees(omega_noisy * dt)) % 360
 
     def detect_landmarks(self, landmarks, fov_angle, view_distance):
         detected_landmarks = set()
@@ -72,7 +78,6 @@ class Robot:
         if distance > view_distance:
             return False
 
-        # ✅ This is a world coordinate, so no -dy needed
         landmark_angle = math.degrees(math.atan2(dy, dx)) % 360
         robot_angle = self.angle % 360
 
