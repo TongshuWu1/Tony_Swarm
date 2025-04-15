@@ -256,8 +256,8 @@ def mark_inverse_path(matrixA, entryPoint, exitPoint):
 def trace_knot_path(matrixA, entryPoint, exitPoint):
     """Traces the full rope path, ensuring all steps are recorded and detects multiple loops."""
     currentPoint = entryPoint
-    path_list = []
-    path_set = set()
+    path_list = [currentPoint]
+    path_set = {currentPoint}
     all_agents = set()
     processed_regions = set()
 
@@ -299,6 +299,26 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         direction = "col" if direction == "row" else "row"
 
     return path_list, all_agents
+
+def compute_agent_reduction(matrixA, entryPoint, exitPoint):
+    mark_inverse_path(matrixA, entryPoint, exitPoint)
+    full_path, agent_points = trace_knot_path(matrixA, entryPoint, exitPoint)
+
+    # Convert to linked list
+    head = None
+    prev = None
+    for point in full_path:
+        point_type = "agent" if point in agent_points else "path"
+        node = Node(point, point_type)  # <-- ✅ pass both args
+        if prev:
+            prev.next = node
+        else:
+            head = node
+        prev = node
+
+    cross_count = sum(row.count(3) for row in matrixA)
+    return full_path, head, cross_count
+
 
 if __name__ == "__main__":
     matrixA, entryPoint, exitPoint = read_path()

@@ -31,7 +31,7 @@ class OdometryEstimator:
             [0, 0,  1]
         ])
 
-        # === 🌀 Rotate anisotropic motion noise into world frame ===
+        # === 🌀 Rotate local noise into world frame ===
         R_theta = np.array([
             [np.cos(theta), -np.sin(theta), 0],
             [np.sin(theta),  np.cos(theta), 0],
@@ -41,6 +41,7 @@ class OdometryEstimator:
 
         # EKF Covariance Update
         self.cov = G @ self.cov @ G.T + rotated_motion_noise
+
 
     def correct(self, measurements, measurement_noise_cov, alpha=1.0):
         """

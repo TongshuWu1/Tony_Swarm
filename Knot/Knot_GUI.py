@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import os
-import Agent_reduction  # Make sure this has your updated code
-from pathNode import Node
+import region_detection as Agent_reduction
+
 
 class AgentReductionGUI:
     def __init__(self, root):

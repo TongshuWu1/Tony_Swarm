@@ -6,7 +6,7 @@ from config import WORLD_WIDTH_METERS, WORLD_HEIGHT_METERS
 
 
 class Robot:
-    def __init__(self, x, y, angle=90, size=0.5, motor_distance=0.5, max_speed=2.0, noise_std=(0.02, 0.02, 0.2)):
+    def __init__(self, x, y, angle=90, size=0.5, motor_distance=0.5, max_speed=2.0, noise_std=(0.01, 0.01, 0.1)):
         """
         Differential-drive robot simulation with motion noise and landmark perception.
 
@@ -134,3 +134,15 @@ class Robot:
         else:
             # FOV spans the 0-degree boundary.
             return landmark_angle >= left_bound or landmark_angle <= right_bound
+    def detect_wall_ahead(self, view_distance):
+        """
+        Simple forward raycast to detect wall.
+        Returns True if robot is near boundary within view_distance in front.
+        """
+        angle_rad = math.radians(self.angle)
+        forward_x = self.x + view_distance * math.cos(angle_rad)
+        forward_y = self.y + view_distance * math.sin(angle_rad)
+
+        if forward_x < 0 or forward_x > 15 or forward_y < 0 or forward_y > 30:
+            return True
+        return False
