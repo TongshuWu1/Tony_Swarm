@@ -16,6 +16,16 @@ ComputerVision/
 
 ```
 ---
+
+
+## 🔗 Repository Links
+
+- [Main Project Directory](https://github.com/TongshuWu1/Tony_Swarm/tree/3298cbf0c3b08dae1506b79263e39706b3ddfb70/ComputerVision)
+- [Detection Logic](https://github.com/TongshuWu1/Tony_Swarm/tree/main/ComputerVision/data/src)
+- [LAB Color Gain Tools](https://github.com/TongshuWu1/Tony_Swarm/tree/main/ComputerVision/get_gain)
+
+
+---
 ### 1. Calibrate Camera with `get_gain`
 
 Before collecting LAB data or running detection, run the get_gains.py script to stabilize camera color balance:
@@ -92,11 +102,3 @@ Located at the top of `run_detection.py`:
 - Tune `SENSITIVITY` for different balloon types (red vs green).
 - For noisy backgrounds, consider using neighbor filtering (future work).
 
----
-
-
-## 🔗 Repository Links
-
-- [Main Project Directory](https://github.com/TongshuWu1/Tony_Swarm/tree/3298cbf0c3b08dae1506b79263e39706b3ddfb70/ComputerVision)
-- [Detection Logic](https://github.com/TongshuWu1/Tony_Swarm/tree/main/ComputerVision/data/src)
-- [LAB Color Gain Tools](https://github.com/TongshuWu1/Tony_Swarm/tree/main/ComputerVision/get_gain)
