@@ -4,11 +4,12 @@ import os
 import region_detection as Agent_reduction
 import colorsys
 
+
 class AgentReductionGUI:
     def __init__(self, root):
         self.root = root
-        self.root.geometry("800x1000")
         self.root.title("Agent Reduction - Path Optimization")
+        self.root.state("zoomed")  # Start maximized
 
         # ============ 1) Main Scrollable Frame Setup ============
         main_frame = tk.Frame(self.root)
@@ -27,7 +28,8 @@ class AgentReductionGUI:
         self.second_frame = tk.Frame(self.my_canvas)
         self.my_canvas.create_window((0, 0), window=self.second_frame, anchor="nw")
 
-        self.label_title = tk.Label(self.second_frame, text="Agent Reduction", font=("Arial", 18), fg="black", bg="lightgray")
+        self.label_title = tk.Label(self.second_frame, text="Agent Reduction", font=("Arial", 18), fg="black",
+                                    bg="lightgray")
         self.label_title.pack(pady=10, fill=tk.X)
 
         self.matrix_name_label = tk.Label(self.second_frame, text="Matrix Name:")
@@ -78,8 +80,9 @@ class AgentReductionGUI:
         self.result_frame = tk.Frame(self.second_frame)
         self.result_frame.pack(pady=10, fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(self.result_frame, width=400, height=400, bg="white")
-        self.canvas.pack(side=tk.LEFT, padx=10)
+        self.canvas = tk.Canvas(self.result_frame, bg="white")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
 
         self.output_frame = tk.Frame(self.result_frame)
         self.output_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -105,8 +108,17 @@ class AgentReductionGUI:
         self.crossing_number_label.pack()
 
     def _on_mousewheel(self, event):
-        self.my_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.my_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
+    def on_canvas_resize(self, event):
+        self.canvas_width = event.width
+        self.canvas_height = event.height
+
+        # Prevent errors when fields are empty or app hasn't fully loaded
+        if not self.entry_point.get().strip() or not self.exit_point.get().strip():
+            return
+
+        self.run_algorithm()
     def clear_all(self):
         self.matrix_name_entry.delete(0, tk.END)
         self.matrix_text.delete("1.0", tk.END)
@@ -246,6 +258,19 @@ class AgentReductionGUI:
                 path_list.append((r, c, pt_type))
                 current_node = current_node.next
 
+            # Count turning points
+            def is_turning(prev, curr, nxt):
+                dr1, dc1 = curr[0] - prev[0], curr[1] - prev[1]
+                dr2, dc2 = nxt[0] - curr[0], nxt[1] - curr[1]
+                return (dr1, dc1) != (dr2, dc2)
+
+            turning_points = 0
+            for i in range(1, len(path_list) - 1):
+                prev = path_list[i - 1][:2]
+                curr = path_list[i][:2]
+                nxt = path_list[i + 1][:2]
+                if is_turning(prev, curr, nxt):
+                    turning_points += 1
 
             # Draw Path on the canvas
             self.draw_grid(matrix, path_list)
@@ -255,16 +280,14 @@ class AgentReductionGUI:
             formatted_path = "\n".join([f"{point}" for point in path_list])
             self.path_text.insert(tk.END, formatted_path)
 
-            original_points = len(path_list)
             agents_needed = sum(1 for point in path_list if point[2] == "agent")
 
-            self.original_points_label.config(text=f"Total number of original points: {original_points}")
+            self.original_points_label.config(text=f"Total number of turning points: {turning_points}")
             self.agents_needed_label.config(text=f"Total number of agents needed after reduction: {agents_needed}")
             self.crossing_number_label.config(text=f"Total number of crossings: {crossNumber}")
 
         except Exception as e:
             messagebox.showerror("Error", f"Invalid input: {e}")
-
     import colorsys
     def draw_grid(self, matrix, path):
         self.canvas.delete("all")
