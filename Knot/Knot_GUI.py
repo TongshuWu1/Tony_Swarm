@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog
 import os
 import region_detection as Agent_reduction
-
+import colorsys
 
 class AgentReductionGUI:
     def __init__(self, root):
@@ -14,44 +14,27 @@ class AgentReductionGUI:
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Canvas for scrolling
         self.my_canvas = tk.Canvas(main_frame)
         self.my_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Scrollbar
         self.my_scrollbar = tk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.my_canvas.yview)
         self.my_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Configure the canvas
         self.my_canvas.configure(yscrollcommand=self.my_scrollbar.set)
-        self.my_canvas.bind(
-            "<Configure>",
-            lambda e: self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
-        )
-
-        # Bind mouse wheel to scroll
+        self.my_canvas.bind("<Configure>", lambda e: self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all")))
         self.my_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        # Frame inside the canvas (this is our "scrollable" frame)
         self.second_frame = tk.Frame(self.my_canvas)
         self.my_canvas.create_window((0, 0), window=self.second_frame, anchor="nw")
 
-        # ============ 2) Widgets inside second_frame ============
-
-        # Title
-        self.label_title = tk.Label(
-            self.second_frame, text="Agent Reduction",
-            font=("Arial", 18), fg="black", bg="lightgray"
-        )
+        self.label_title = tk.Label(self.second_frame, text="Agent Reduction", font=("Arial", 18), fg="black", bg="lightgray")
         self.label_title.pack(pady=10, fill=tk.X)
 
-        # Matrix Name Input
         self.matrix_name_label = tk.Label(self.second_frame, text="Matrix Name:")
         self.matrix_name_label.pack()
         self.matrix_name_entry = tk.Entry(self.second_frame, width=50)
         self.matrix_name_entry.pack()
 
-        # Matrix Input Text Area
         self.matrix_label = tk.Label(self.second_frame, text="Enter Matrix (comma separated):")
         self.matrix_label.pack()
 
@@ -73,14 +56,11 @@ class AgentReductionGUI:
         self.clear_button = tk.Button(self.button_frame, text="Clear", command=self.clear_all)
         self.clear_button.pack(pady=5)
 
-        # Notes Input Text Area
         self.notes_label = tk.Label(self.second_frame, text="Notes:")
         self.notes_label.pack()
-
         self.notes_text = tk.Text(self.second_frame, height=4, width=50)
         self.notes_text.pack()
 
-        # Frame for Entry and Exit Points
         self.entry_exit_frame = tk.Frame(self.second_frame)
         self.entry_exit_frame.pack(pady=5)
 
@@ -92,44 +72,35 @@ class AgentReductionGUI:
         self.exit_point = tk.Entry(self.entry_exit_frame, width=10)
         self.exit_point.pack(side=tk.LEFT, padx=5)
 
-        # Run Button
         self.run_button = tk.Button(self.second_frame, text="Run Agent Reduction", command=self.run_algorithm)
         self.run_button.pack(pady=10)
 
-        # Frame to hold canvas and path output side by side
         self.result_frame = tk.Frame(self.second_frame)
         self.result_frame.pack(pady=10, fill=tk.BOTH, expand=True)
 
-        # Canvas for Path Visualization
         self.canvas = tk.Canvas(self.result_frame, width=400, height=400, bg="white")
         self.canvas.pack(side=tk.LEFT, padx=10)
 
-        # Frame for the right-side output (Path)
         self.output_frame = tk.Frame(self.result_frame)
         self.output_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Path Output Label
         self.path_title_label = tk.Label(self.output_frame, text="Path from Entry to Exit:")
         self.path_title_label.pack()
 
-        # Checkbox for toggling matrix overlay
         self.show_matrix_overlay = tk.BooleanVar()
         self.matrix_overlay_checkbox = tk.Checkbutton(self.second_frame, text="Show Matrix Overlay",
                                                       variable=self.show_matrix_overlay, command=self.run_algorithm)
         self.matrix_overlay_checkbox.pack(pady=5)
 
-        # Path Text Area
         self.path_text = tk.Text(self.output_frame, height=20, width=40)
         self.path_text.pack(fill=tk.BOTH, expand=True)
 
-        # Labels for summary info
         self.original_points_label = tk.Label(self.output_frame, text="Total number of original points: ")
         self.original_points_label.pack()
 
         self.agents_needed_label = tk.Label(self.output_frame, text="Total number of agents needed after reduction: ")
         self.agents_needed_label.pack()
 
-        # Label for crossing number
         self.crossing_number_label = tk.Label(self.output_frame, text="Total number of crossings: ")
         self.crossing_number_label.pack()
 
@@ -179,7 +150,7 @@ class AgentReductionGUI:
                     file.write(f"Notes: {notes_str}\n")
                     file.write(matrix_str)
                 self.matrix_name_entry.delete(0, tk.END)
-                self.matrix_name_entry.insert(0, file_name.split('/')[-1].split('.')[0])
+                self.matrix_name_entry.insert(0, os.path.basename(file_name).split('.')[0])
                 messagebox.showinfo("Success", "Matrix saved successfully")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save matrix: {e}")
@@ -192,20 +163,29 @@ class AgentReductionGUI:
                     lines = file.readlines()
                     entry = lines[0].strip().split(": ")[1]
                     exit_ = lines[1].strip().split(": ")[1]
-                    notes = lines[2].strip().split(": ")[1] if len(lines) > 2 else ""
-                    matrix_str = "".join(lines[3:])
+
+                    # Handle optional or empty Notes line
+                    notes = ""
+                    matrix_start_line = 2
+                    if len(lines) > 2 and lines[2].startswith("Notes:"):
+                        parts = lines[2].strip().split(":", 1)
+                        notes = parts[1].strip() if len(parts) > 1 else ""
+                        matrix_start_line = 3
+
+                    matrix_str = "".join(lines[matrix_start_line:])
 
                 self.matrix_text.delete("1.0", tk.END)
                 self.matrix_text.insert(tk.END, matrix_str)
                 self.notes_text.delete("1.0", tk.END)
                 self.notes_text.insert(tk.END, notes)
                 self.entry_point.delete(0, tk.END)
-                self.entry_point.insert(0, entry)
+                if entry != "None":
+                    self.entry_point.insert(0, entry)
                 self.exit_point.delete(0, tk.END)
-                self.exit_point.insert(0, exit_)
+                if exit_ != "None":
+                    self.exit_point.insert(0, exit_)
                 self.matrix_name_entry.delete(0, tk.END)
-                self.matrix_name_entry.insert(0, file_path.split('/')[-1].split('.')[0])
-                messagebox.showinfo("Success", "Matrix loaded successfully")
+                self.matrix_name_entry.insert(0, os.path.basename(file_path).split('.')[0])
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load matrix: {e}")
 
@@ -225,8 +205,18 @@ class AgentReductionGUI:
             cols = len(matrix[0]) if rows > 0 else 0
 
             # Read entry and exit points
-            entry = tuple(map(int, self.entry_point.get().split(',')))
-            exit_ = tuple(map(int, self.exit_point.get().split(',')))
+            entry_str = self.entry_point.get().strip()
+            exit_str = self.exit_point.get().strip()
+
+            if not entry_str or entry_str.lower() == "none":
+                messagebox.showerror("Error", "Entry point is missing or None.")
+                return
+            if not exit_str or exit_str.lower() == "none":
+                messagebox.showerror("Error", "Exit point is missing or None.")
+                return
+
+            entry = tuple(map(int, entry_str.split(',')))
+            exit_ = tuple(map(int, exit_str.split(',')))
 
             # Validate coordinates
             if not (0 <= entry[0] < rows and 0 <= entry[1] < cols):
@@ -256,8 +246,6 @@ class AgentReductionGUI:
                 path_list.append((r, c, pt_type))
                 current_node = current_node.next
 
-            # Reverse path_list if needed
-            path_list.reverse()
 
             # Draw Path on the canvas
             self.draw_grid(matrix, path_list)
@@ -277,18 +265,19 @@ class AgentReductionGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Invalid input: {e}")
 
+    import colorsys
     def draw_grid(self, matrix, path):
-        """
-        Draw the matrix with the path on the canvas.
-        `path` is a list of (row, col, type).
-        """
-        self.canvas.delete("all")  # Clear previous drawings
-
+        self.canvas.delete("all")
         rows = len(matrix)
         cols = len(matrix[0]) if rows > 0 else 0
 
-        # Adjust cell size
-        cell_size = min(400 // max(rows, 1), 400 // max(cols, 1)) if rows and cols else 40
+        # Cell size (minimum size to remain readable)
+        cell_size = max(30, min(50, 800 // max(rows, cols)))
+
+        # Resize canvas to fit grid dynamically
+        canvas_width = cols * cell_size
+        canvas_height = rows * cell_size
+        self.canvas.config(width=canvas_width, height=canvas_height)
 
         # Draw the grid
         for r in range(rows):
@@ -300,40 +289,67 @@ class AgentReductionGUI:
                 self.canvas.create_text(x1 + 5, y1 + 5, anchor=tk.NW, text=f"({r},{c})", font=("Arial", 8))
 
                 if self.show_matrix_overlay.get():
-                    self.canvas.create_text(x1 + cell_size // 2, y1 + cell_size // 2, text=f"{matrix[r][c]}",
-                                            font=("Arial", 16), fill="black", tags="overlay")
+                    self.canvas.create_text(
+                        x1 + cell_size // 2, y1 + cell_size // 2,
+                        text=f"{matrix[r][c]}", font=("Arial", 14), fill="black", tags="overlay"
+                    )
 
-        # Draw the path
+        # Draw path with arrows
         for i in range(len(path) - 1):
-            (r1, c1, t1) = path[i]
-            (r2, c2, t2) = path[i + 1]
+            try:
+                r1, c1 = path[i][:2]
+                r2, c2 = path[i + 1][:2]
+                t1 = path[i][2] if len(path[i]) > 2 else "path"
 
-            x1, y1 = c1 * cell_size + cell_size // 2, r1 * cell_size + cell_size // 2
-            x2, y2 = c2 * cell_size + cell_size // 2, r2 * cell_size + cell_size // 2
+                if not (0 <= r1 < rows and 0 <= c1 < cols and 0 <= r2 < rows and 0 <= c2 < cols):
+                    continue
 
-            # Determine cross type
-            if matrix[r1][c1] == -1 and matrix[r2][c2] == 1:
-                cross_type = 'over'
-            elif matrix[r1][c1] == 1 and matrix[r2][c2] == -1:
-                cross_type = 'under'
-            else:
-                cross_type = None
+                x1, y1 = c1 * cell_size + cell_size // 2, r1 * cell_size + cell_size // 2
+                x2, y2 = c2 * cell_size + cell_size // 2, r2 * cell_size + cell_size // 2
 
-            if cross_type == 'over':
-                self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, arrow=tk.LAST)
-            elif cross_type == 'under':
-                self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, dash=(4, 2), arrow=tk.LAST)
-            else:
-                self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, arrow=tk.LAST)
+                # Determine cross type
+                if matrix[r1][c1] == -1 and matrix[r2][c2] == 1:
+                    cross_type = 'over'
+                elif matrix[r1][c1] == 1 and matrix[r2][c2] == -1:
+                    cross_type = 'under'
+                else:
+                    cross_type = None
 
-            if t1 == "agent":
-                radius = 3
-                self.canvas.create_oval(x1 - radius, y1 - radius, x1 + radius, y1 + radius, fill="blue")
+                if cross_type == 'over':
+                    self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, arrow=tk.LAST)
+                elif cross_type == 'under':
+                    self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, dash=(4, 2), arrow=tk.LAST)
+                else:
+                    self.canvas.create_line(x1, y1, x2, y2, fill="red", width=2, arrow=tk.LAST)
 
-        # Bring overlay text to front
+                if t1 == "agent":
+                    radius = 3
+                    self.canvas.create_oval(x1 - radius, y1 - radius, x1 + radius, y1 + radius, fill="blue")
+
+            except Exception as e:
+                print(f"Path drawing error at index {i}: {e}")
+
+        # Draw entry and exit
+        if path:
+            try:
+                entry_r, entry_c = path[0][:2]
+                exit_r, exit_c = path[-1][:2]
+
+                entry_x = entry_c * cell_size + cell_size // 2
+                entry_y = entry_r * cell_size + cell_size // 2
+                exit_x = exit_c * cell_size + cell_size // 2
+                exit_y = exit_r * cell_size + cell_size // 2
+
+                radius = 5
+                self.canvas.create_oval(entry_x - radius, entry_y - radius, entry_x + radius, entry_y + radius,
+                                        fill="green")
+                self.canvas.create_oval(exit_x - radius, exit_y - radius, exit_x + radius, exit_y + radius, fill="red")
+            except Exception as e:
+                print(f"Failed to draw entry/exit: {e}")
+
+        # Bring overlay to front
         if self.show_matrix_overlay.get():
             self.canvas.tag_raise("overlay")
-
 
 
 # ============ Run GUI ============

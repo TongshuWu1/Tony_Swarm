@@ -90,7 +90,7 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint):
 
     enclosed_area, contains_value, cells_with_values = find_enclosed_area(matrixA, loop)
 
-    # Check if the enclosed area is partially covered
+    # Check if the enclosed area is already processed
     uncovered_area = enclosed_area - processed_regions
     if not uncovered_area:
         print("This loop's region was already processed. Skipping.")
@@ -103,30 +103,53 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint):
     print("Cells containing 1 or -1:", cells_with_values)
 
     agent_points = set()
+    print("\nAssigning agents to loop turning points with fallback:")
 
-    print("\nAssigning agents to the four corners of the enclosing loop:")
+    # Helper: detect if the current point is a turning point
+    def is_turning_point(prev, curr, nxt):
+        dr1, dc1 = curr[0] - prev[0], curr[1] - prev[1]
+        dr2, dc2 = nxt[0] - curr[0], nxt[1] - curr[1]
+        return (dr1, dc1) != (dr2, dc2)
 
-    # Find the smallest and largest x and y coordinates in the loop
-    min_x = min(r for r, c in loop)
-    max_x = max(r for r, c in loop)
-    min_y = min(c for r, c in loop)
-    max_y = max(c for r, c in loop)
+    # Main search: find turning point or next valid cell in loop
+    def find_best_agent_point(start_idx, path):
+        n = len(path)
 
-    # Define the four corner points
-    corner_points = [
-        (min_x, min_y),  # Top-left corner
-        (min_x, max_y),  # Top-right corner
-        (max_x, max_y),  # Bottom-right corner
-        (max_x, min_y)   # Bottom-left corner
-    ]
+        # First try: turning points
+        for i in range(n):
+            idx_prev = (start_idx + i - 1) % n
+            idx_curr = (start_idx + i) % n
+            idx_next = (start_idx + i + 1) % n
 
-    # Assign agents to the four corners if they have a value of 1 or -1
-    for corner in corner_points:
-        if matrixA[corner[0]][corner[1]] in {1, -1}:
+            prev, curr, nxt = path[idx_prev], path[idx_curr], path[idx_next]
+            if is_turning_point(prev, curr, nxt) and matrixA[curr[0]][curr[1]] in {1, -1} and matrixA[curr[0]][curr[1]] != 3:
+                return curr
+
+        # Fallback: any valid cell in the loop
+        for i in range(n):
+            idx = (start_idx + i) % n
+            r, c = path[idx]
+            if matrixA[r][c] in {1, -1} and matrixA[r][c] != 3:
+                return (r, c)
+
+        return None
+
+    # Find approximate corner index in loop path
+    corner_indices = {
+        "top_left": min(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
+        "top_right": min(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
+        "bottom_right": max(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
+        "bottom_left": max(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
+    }
+
+    # Assign agents from corners to valid turning points or next valid
+    for corner_name, idx in corner_indices.items():
+        corner = find_best_agent_point(idx, loop)
+        if corner:
             agent_points.add(corner)
-            print(f"Assigned agent at: {corner}")
+            print(f"Assigned agent at {corner_name.replace('_', ' ')}: {corner}")
 
-    # Add entry and exit points to the agent list if they have a value of 1 or -1
+    # Always include entry and exit points if valid
     if matrixA[entryPoint[0]][entryPoint[1]] in {1, -1}:
         agent_points.add(entryPoint)
         print(f"Assigned agent at entry point: {entryPoint}")
@@ -139,6 +162,7 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint):
         print(f"  Agent at: {agent}")
 
     return agent_points
+
 
 def find_enclosed_area(matrix, looppath):
     rows, cols = len(matrix), len(matrix[0])
