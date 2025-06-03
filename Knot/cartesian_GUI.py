@@ -11,7 +11,7 @@ class cartesian_GUI:
 
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
-        self.root.state("zoomed")
+        self.root.geometry("1000x700")
         self.canvas_path_items = []
         self.animation_running = False
         self.animation_job = None
@@ -213,22 +213,6 @@ class cartesian_GUI:
 
     import math
 
-    def offset_point(x1, y1, x2, y2, ratio=0.8):
-        """
-        Returns a point offset along the segment from (x1, y1) to (x2, y2).
-        `ratio` controls how far along the line the offset is.
-        """
-        dx = x2 - x1
-        dy = y2 - y1
-        length = math.sqrt(dx ** 2 + dy ** 2)
-        if length == 0:
-            return x1, y1
-        offset_x = x1 + dx * ratio
-        offset_y = y1 + dy * ratio
-        return offset_x, offset_y
-
-    offset_point(0, 0, 10, 0)  # Example test: offset along a horizontal line
-
     def run_algorithm(self):
         try:
             matrix_str = self.matrix_text.get("1.0", tk.END).strip()
@@ -241,14 +225,6 @@ class cartesian_GUI:
             path, head, crossNumber, loop_map = Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             self.loop_map = loop_map
 
-            self.loop_colors = {}
-            num_loops = len(loop_map)
-            for i, loop_id in enumerate(sorted(loop_map.keys())):
-                hue = (i + 1) / (num_loops + 1)
-                rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.9)
-                color = '#%02x%02x%02x' % tuple(int(x * 255) for x in rgb)
-                self.loop_colors[loop_id] = color
-
             path_list = []
             current_node = head
             while current_node:
@@ -256,6 +232,18 @@ class cartesian_GUI:
                 pt_type = current_node.point_identifier
                 path_list.append((r, c, pt_type))
                 current_node = current_node.next
+
+            self.crossing_points = set(
+                (r, c) for r in range(len(matrix)) for c in range(len(matrix[0])) if matrix[r][c] == 3
+            )
+
+            self.loop_colors = {}
+            num_loops = len(loop_map)
+            for i, loop_id in enumerate(sorted(loop_map.keys())):
+                hue = (i + 1) / (num_loops + 1)
+                rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.9)
+                color = '#%02x%02x%02x' % tuple(int(x * 255) for x in rgb)
+                self.loop_colors[loop_id] = color
 
             self.draw_grid(matrix, path_list, loop_map)
 
@@ -265,8 +253,8 @@ class cartesian_GUI:
 
             turning_points = sum(
                 1 for i in range(1, len(path_list) - 1)
-                if (path_list[i - 1][0] - path_list[i][0], path_list[i - 1][1] - path_list[i][1]) != (
-                path_list[i][0] - path_list[i + 1][0], path_list[i][1] - path_list[i + 1][1])
+                if (path_list[i - 1][0] - path_list[i][0], path_list[i - 1][1] - path_list[i][1]) !=
+                (path_list[i][0] - path_list[i + 1][0], path_list[i][1] - path_list[i + 1][1])
             )
 
             agents_needed = sum(1 for point in path_list if point[2] == "agent")
@@ -277,9 +265,9 @@ class cartesian_GUI:
 
         except Exception as e:
             messagebox.showerror("Error", f"Invalid input: {e}")
+
     def draw_grid(self, matrix, path, loop_map):
         self.canvas.delete("all")
-        self.path_for_animation = path
         self.canvas_path_items = []
 
         rows, cols = len(matrix), len(matrix[0])
@@ -288,7 +276,6 @@ class cartesian_GUI:
         canvas_height = rows * self.cell_size
         self.canvas.config(width=canvas_width, height=canvas_height)
 
-        # Draw grid and coordinates
         for r in range(rows):
             for c in range(cols):
                 x1, y1 = c * self.cell_size, r * self.cell_size
@@ -299,43 +286,76 @@ class cartesian_GUI:
                     self.canvas.create_text(x1 + self.cell_size // 2, y1 + self.cell_size // 2,
                                             text=str(matrix[r][c]), font=("Arial", 10), tags="overlay")
 
-        # Assign colors to loops
-        self.loop_colors = {}
-        self.loop_path_set = set()
-        num_loops = len(loop_map)
-        for i, loop_id in enumerate(sorted(loop_map.keys())):
-            hue = (i + 1) / (num_loops + 1)
-            rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.9)
-            color = '#%02x%02x%02x' % tuple(int(x * 255) for x in rgb)
-            self.loop_colors[loop_id] = color
-            print(f"🖌️ Assigning color {color} to Loop ID #{loop_id}")
-
-            path_pts = loop_map[loop_id]["path"]
-            for j in range(len(path_pts)):
-                pt1 = path_pts[j]
-                pt2 = path_pts[(j + 1) % len(path_pts)]
-                self.loop_path_set.add(tuple(sorted([pt1, pt2])))
-
-        # Draw agents (blue dots)
         for r, c, pt_type in path:
             if pt_type == "agent":
                 x = c * self.cell_size + self.cell_size // 2
                 y = r * self.cell_size + self.cell_size // 2
                 self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="blue")
 
-        # Entry and exit points
         if path:
             entry_r, entry_c = path[0][:2]
             exit_r, exit_c = path[-1][:2]
             self._draw_marker(entry_r, entry_c, "green")
             self._draw_marker(exit_r, exit_c, "red")
 
-        if self.show_matrix_overlay.get():
-            self.canvas.tag_raise("overlay")
+        for i in range(len(path) - 1):
+            r1, c1, _ = path[i]
+            r2, c2, _ = path[i + 1]
+            x1 = c1 * self.cell_size + self.cell_size // 2
+            y1 = r1 * self.cell_size + self.cell_size // 2
+            x2 = c2 * self.cell_size + self.cell_size // 2
+            y2 = r2 * self.cell_size + self.cell_size // 2
 
-        # Begin animation
-        self.animation_running = True
-        self.animate_full_path(index=0)
+            color = "red"
+            edge = tuple(sorted([(r1, c1), (r2, c2)]))
+            for loop_id, loop_info in loop_map.items():
+                loop_path = loop_info["path"]
+                loop_edges = set(
+                    tuple(sorted([loop_path[j], loop_path[(j + 1) % len(loop_path)]])) for j in range(len(loop_path))
+                )
+                if edge in loop_edges:
+                    color = self.loop_colors.get(loop_id, "red")
+                    break
+
+            if r1 == r2:
+                row = r1
+                col_start = min(c1, c2)
+                col_end = max(c1, c2)
+                cx_last = 0
+                for col in range(col_start, col_end):
+                    y = row * self.cell_size + self.cell_size // 2
+                    cx = col * self.cell_size + self.cell_size // 2
+                    cx_next = (col + 1) * self.cell_size + self.cell_size // 2
+                    if cx_last == 0:
+                        cx_last = cx
+
+                    if matrix[row][col] == 3:
+                        center_x = col * self.cell_size + self.cell_size // 2
+                        y = row * self.cell_size + self.cell_size // 2
+                        gap = 30
+                        gap_start = center_x - gap/2
+                        gap_end = center_x + gap/2
+
+                        print('Drawing horizontal line with gap at row:', row, 'col:', col, 'gap_start:', gap_start, 'gap_end:', gap_end)
+
+                        # Draw left half line only up to the gap_start
+                        self.canvas.create_line(cx_last, y, gap_start, y, fill="black", width=4 )
+                        self.canvas.create_line(cx_last, y, gap_start, y, fill=color, width=2)
+
+                        # Draw right half line starting after the gap_end
+                        self.canvas.create_line(gap_end, y, cx_next, y, fill="black", width=4)
+                        self.canvas.create_line(gap_end, y, cx_next, y, fill=color, width=2)
+
+
+                    else:
+                        self.canvas.create_line(cx_last, y, cx_next, y, fill="black", width=4)
+                        self.canvas.create_line(cx_last, y, cx_next, y, fill=color, width=2)
+
+                    cx_last = cx_next
+
+            elif c1 == c2:
+                self.canvas.create_line(x1, y1, x2, y2, fill="black", width=4,arrow=tk.LAST)
+                self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
 
     def _draw_marker(self, r, c, color):
         x = c * self.cell_size + self.cell_size // 2
@@ -343,94 +363,7 @@ class cartesian_GUI:
         radius = 5
         self.canvas.create_oval(x - radius, y - radius, x + radius, y + radius, fill=color)
 
-    def animate_full_path(self, index=0):
-        if not self.animation_running:
-            return  # Stop if animation is disabled (e.g., on clear)
 
-        if index == 0:
-            for item in getattr(self, "canvas_path_items", []):
-                self.canvas.delete(item)
-            self.canvas_path_items = []
-
-        if index >= len(self.path_for_animation) - 1:
-            self.animation_job = self.root.after(1600, lambda: self.animate_full_path(0))
-            return
-
-        self.draw_next_segment(index)
-        self.animation_job = self.root.after(100, lambda: self.animate_full_path(index + 1))
-
-    def draw_next_segment(self, index):
-        r1, c1, _ = self.path_for_animation[index]
-        r2, c2, _ = self.path_for_animation[index + 1]
-        x1, y1 = c1 * self.cell_size + self.cell_size // 2, r1 * self.cell_size + self.cell_size // 2
-        x2, y2 = c2 * self.cell_size + self.cell_size // 2, r2 * self.cell_size + self.cell_size // 2
-
-        edge = tuple(sorted([(r1, c1), (r2, c2)]))
-        color = "red"
-
-        # Check if this edge belongs to a loop
-        for loop_id, loop_info in self.loop_map.items():
-            loop_path = loop_info["path"]
-            loop_edges = set(
-                tuple(sorted([loop_path[i], loop_path[(i + 1) % len(loop_path)]])) for i in range(len(loop_path)))
-            if edge in loop_edges:
-                color = self.loop_colors.get(loop_id, "red")
-                break
-
-        # Arrow only at turning points
-        arrow_option = None
-        if index > 0 and index < len(self.path_for_animation) - 1:
-            r0, c0, _ = self.path_for_animation[index - 1]
-            dr1, dc1 = r1 - r0, c1 - c0
-            dr2, dc2 = r2 - r1, c2 - c1
-            if (dr1, dc1) != (dr2, dc2):
-                arrow_option = tk.LAST
-
-        # Determine orientation
-        is_horizontal = r1 == r2
-        is_vertical = c1 == c2
-        mid_x = (x1 + x2) // 2
-        mid_y = (y1 + y2) // 2
-        gap_size = 6
-
-        # Track drawn edges if not already initialized
-        if not hasattr(self, "drawn_edges"):
-            self.drawn_edges = []
-
-        # Check for crossing
-        crossed = False
-        for prev in self.drawn_edges:
-            (px1, py1), (px2, py2), porient, _ = prev
-
-            if is_vertical and porient == "horizontal":
-                if min(px1, px2) < x1 < max(px1, px2) and min(y1, y2) < py1 < max(y1, y2):
-                    # Cross detected — split horizontal
-                    self.canvas.delete(prev[3])  # delete previous line
-                    gap = gap_size
-                    self.canvas_path_items.append(
-                        self.canvas.create_line(px1, py1, mid_x - gap, py1, fill="black", width=8)
-                    )
-                    self.canvas_path_items.append(
-                        self.canvas.create_line(mid_x + gap, py1, px2, py2, fill="black", width=8)
-                    )
-                    crossed = True
-                    break
-
-        # Draw thick black line (backbone)
-        if is_horizontal or is_vertical:
-            line_back = self.canvas.create_line(x1, y1, x2, y2, fill="black", width=6, arrow=arrow_option)
-            self.canvas_path_items.append(line_back)
-
-            # Draw thinner colored overlay — no arrow
-            line_front = self.canvas.create_line(x1, y1, x2, y2, fill=color, width=1)
-            self.canvas_path_items.append(line_front)
-
-            # Track new segment
-            orientation = "horizontal" if is_horizontal else "vertical"
-            self.drawn_edges.append(((x1, y1), (x2, y2), orientation, line_back))
-
-
-# ============ Run GUI ============
 if __name__ == "__main__":
 
 
