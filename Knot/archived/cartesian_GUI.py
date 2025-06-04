@@ -1,12 +1,11 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import os
-import region_detection as Agent_reduction
+from Tony_Swarm.Tony_Swarm.Knot.archived import cartesian_reduction as Agent_reduction
 import colorsys
-import math
 
 
-class Knot_GUI:
+class cartesian_GUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
@@ -407,8 +406,6 @@ class Knot_GUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load matrix: {e}")
 
-    import math
-
     def run_algorithm(self):
         try:
             matrix_str = self.matrix_text.get("1.0", tk.END).strip()
@@ -804,5 +801,5 @@ class Knot_GUI:
 if __name__ == "__main__":
 
     root = tk.Tk()
-    app = Knot_GUI(root)
+    app = cartesian_GUI(root)
     root.mainloop()

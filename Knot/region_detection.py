@@ -1,10 +1,12 @@
 from pathNode import Node
 from collections import deque
 import colorsys
+
 agent_registry = {}  # Global map to store agents with unique integer IDs
-loop_registry = {}   # Global map to store loops by loop ID
+loop_registry = {}  # Global map to store loops by loop ID
 next_agent_id = 1
 next_loop_id = 1
+
 
 def reset_globals():
     global agent_registry, loop_registry, next_agent_id, next_loop_id
@@ -12,32 +14,43 @@ def reset_globals():
     loop_registry = {}
     next_agent_id = 1
     next_loop_id = 1
+
+
 def read_path():
     rows = int(input("Enter the number of rows: "))
     cols = int(input("Enter the number of columns: "))
     matrixA = []
     print("Enter the matrix row by row (comma separated):")
     for i in range(rows):
-        row = list(map(int, input().split(',')))
+        row = list(map(int, input().split(",")))
         matrixA.append(row)
 
     while True:
         print("Enter the path entry point (row, col):")
-        entry_input = input().split(',')
+        entry_input = input().split(",")
         if len(entry_input) == 2:
             entryPoint = tuple(map(int, entry_input))
-            if 0 <= entryPoint[0] < rows and 0 <= entryPoint[1] < cols and matrixA[entryPoint[0]][entryPoint[1]] in (-1, 1):
+            if (
+                0 <= entryPoint[0] < rows
+                and 0 <= entryPoint[1] < cols
+                and matrixA[entryPoint[0]][entryPoint[1]] in (-1, 1)
+            ):
                 break
 
     while True:
         print("Enter the path exit point (row, col):")
-        exit_input = input().split(',')
+        exit_input = input().split(",")
         if len(exit_input) == 2:
             exitPoint = tuple(map(int, exit_input))
-            if 0 <= exitPoint[0] < rows and 0 <= exitPoint[1] < cols and matrixA[exitPoint[0]][exitPoint[1]] in (-1, 1):
+            if (
+                0 <= exitPoint[0] < rows
+                and 0 <= exitPoint[1] < cols
+                and matrixA[exitPoint[0]][exitPoint[1]] in (-1, 1)
+            ):
                 break
 
     return matrixA, entryPoint, exitPoint
+
 
 def search_next_turn(matrixA, row, col, direction):
     rows, cols = len(matrixA), len(matrixA[0])
@@ -57,6 +70,7 @@ def search_next_turn(matrixA, row, col, direction):
                 return (r, col)
     return None
 
+
 def find_starting_direction(matrixA, row, col):
     if search_next_turn(matrixA, row, col, "row"):
         return "row"
@@ -64,11 +78,13 @@ def find_starting_direction(matrixA, row, col):
         return "col"
     return None
 
+
 def detect_loop(path_list, path_set, current_point):
     if current_point in path_set:
         loop_start = path_list.index(current_point)
         return path_list[loop_start:]
     return None
+
 
 def find_enclosed_area(matrix, looppath):
     rows, cols = len(matrix), len(matrix[0])
@@ -89,7 +105,11 @@ def find_enclosed_area(matrix, looppath):
 
     while queue:
         r, c = queue.popleft()
-        if (r, c) in exterior or (r, c) in path_set or not (0 <= r < rows and 0 <= c < cols):
+        if (
+            (r, c) in exterior
+            or (r, c) in path_set
+            or not (0 <= r < rows and 0 <= c < cols)
+        ):
             continue
         exterior.add((r, c))
         for dr, dc in directions:
@@ -115,7 +135,11 @@ def find_enclosed_area(matrix, looppath):
 
     while queue:
         r, c = queue.popleft()
-        if (r, c) in visited or (r, c) in path_set or not (0 <= r < rows and 0 <= c < cols):
+        if (
+            (r, c) in visited
+            or (r, c) in path_set
+            or not (0 <= r < rows and 0 <= c < cols)
+        ):
             continue
         enclosed_area.add((r, c))
         visited.add((r, c))
@@ -128,7 +152,18 @@ def find_enclosed_area(matrix, looppath):
     contains_value = bool(cells_with_values)
     return enclosed_area, contains_value, cells_with_values
 
-def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_list, loop_id, current_agents, loop_registry):
+
+def handle_loop(
+    matrixA,
+    loop,
+    processed_regions,
+    entryPoint,
+    exitPoint,
+    path_list,
+    loop_id,
+    current_agents,
+    loop_registry,
+):
     global next_agent_id
 
     enclosed_area, contains_value, cells_with_values = find_enclosed_area(matrixA, loop)
@@ -175,14 +210,11 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_li
                 return curr
         return None
 
-    corner_indices = {
-        "top_left": min(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
-        "top_right": min(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
-        "bottom_right": max(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
-        "bottom_left": max(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
-    }
+    # Use loop traversal order to find agents
+    MAX_AGENTS_PER_LOOP = 4
+    step_size = max(1, len(loop) // MAX_AGENTS_PER_LOOP)
 
-    for _, idx in corner_indices.items():
+    for idx in range(0, len(loop), step_size):
         corner = find_best_agent_point(idx, loop)
         if not corner:
             loop_exit = loop[-1]
@@ -190,7 +222,11 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_li
         if corner and corner not in agent_points:
             agent_points.append(corner)
 
-    new_agents = [pt for pt in agent_points if pt not in current_agents and pt != entryPoint and pt != exitPoint]
+    new_agents = [
+        pt
+        for pt in agent_points
+        if pt not in current_agents and pt != entryPoint and pt != exitPoint
+    ]
     if not new_agents:
         return set()
 
@@ -207,6 +243,7 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_li
         next_agent_id += 1
 
     return set(new_agents)
+
 
 def trace_knot_path(matrixA, entryPoint, exitPoint):
     global next_agent_id, agent_registry, loop_registry
@@ -228,7 +265,9 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         return [], set(), {}
 
     while currentPoint != exitPoint:
-        nextPoint = search_next_turn(matrixA, currentPoint[0], currentPoint[1], direction)
+        nextPoint = search_next_turn(
+            matrixA, currentPoint[0], currentPoint[1], direction
+        )
         if not nextPoint:
             break
 
@@ -242,7 +281,17 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
                 loop = detect_loop(path_list, path_set, pt)
                 if loop and tuple(loop) not in seen_loops:
                     seen_loops.add(tuple(loop))
-                    new_agents = handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_list, loop_id, all_agents, loop_registry)
+                    new_agents = handle_loop(
+                        matrixA,
+                        loop,
+                        processed_regions,
+                        entryPoint,
+                        exitPoint,
+                        path_list,
+                        loop_id,
+                        all_agents,
+                        loop_registry,
+                    )
                     if new_agents:
                         all_agents.update(new_agents)
                         loop_id += 1
@@ -255,7 +304,17 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
                 loop = detect_loop(path_list, path_set, pt)
                 if loop and tuple(loop) not in seen_loops:
                     seen_loops.add(tuple(loop))
-                    new_agents = handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_list, loop_id, all_agents, loop_registry)
+                    new_agents = handle_loop(
+                        matrixA,
+                        loop,
+                        processed_regions,
+                        entryPoint,
+                        exitPoint,
+                        path_list,
+                        loop_id,
+                        all_agents,
+                        loop_registry,
+                    )
                     if new_agents:
                         all_agents.update(new_agents)
                         loop_id += 1
@@ -272,6 +331,8 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         print(f"  Agent {agent_id}: {agent_registry[agent_id]}")
 
     return path_list, all_agents, loop_registry
+
+
 def mark_inverse_path(matrixA, entryPoint, exitPoint):
     currentPoint = exitPoint
     direction = find_starting_direction(matrixA, exitPoint[0], exitPoint[1])
@@ -279,7 +340,9 @@ def mark_inverse_path(matrixA, entryPoint, exitPoint):
         return
 
     while currentPoint != entryPoint:
-        nextPoint = search_next_turn(matrixA, currentPoint[0], currentPoint[1], direction)
+        nextPoint = search_next_turn(
+            matrixA, currentPoint[0], currentPoint[1], direction
+        )
         if not nextPoint:
             break
 
@@ -301,6 +364,7 @@ def mark_inverse_path(matrixA, entryPoint, exitPoint):
 
         currentPoint = nextPoint
         direction = "col" if direction == "row" else "row"
+
 
 def compute_agent_reduction(matrixA, entryPoint, exitPoint):
     mark_inverse_path(matrixA, entryPoint, exitPoint)
@@ -326,11 +390,14 @@ def compute_agent_reduction(matrixA, entryPoint, exitPoint):
         print(f"     Path Points: {path}")
         print(f"     Agents: {agents}")
 
-    return full_path, head, cross_count, loop_map
+    return full_path, head, cross_count, loop_map, agent_registry
+
 
 if __name__ == "__main__":
     matrixA, entryPoint, exitPoint = read_path()
-    full_path, head, cross_count, loop_map = compute_agent_reduction(matrixA, entryPoint, exitPoint)
+    full_path, head, cross_count, loop_map = compute_agent_reduction(
+        matrixA, entryPoint, exitPoint
+    )
 
     for loop_id, data in loop_map.items():
         print(f"\nLoop #{loop_id}:")

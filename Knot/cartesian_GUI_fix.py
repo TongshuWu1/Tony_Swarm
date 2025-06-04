@@ -4,6 +4,8 @@ import os
 import region_detection as Agent_reduction
 import colorsys
 import math
+import adaptive_layout
+from shapely.geometry import LineString
 
 
 class Knot_GUI:
@@ -148,6 +150,15 @@ class Knot_GUI:
             command=self.run_algorithm,
         )
         self.cartesian_toggle_checkbox.pack(pady=5)
+
+        self.use_adaptive_layout = tk.BooleanVar()
+        self.adaptive_toggle_checkbox = tk.Checkbutton(
+            self.second_frame,
+            text="Show Adaptive Physical Layout",
+            variable=self.use_adaptive_layout,
+            command=self.run_algorithm,
+        )
+        self.adaptive_toggle_checkbox.pack(pady=5)
 
         self.result_frame = tk.Frame(self.second_frame)
         self.result_frame.pack(pady=10, fill=tk.BOTH, expand=True)
@@ -461,11 +472,21 @@ class Knot_GUI:
                 color = "#%02x%02x%02x" % tuple(int(x * 255) for x in rgb)
                 self.loop_colors[loop_id] = color
 
-            if self.use_cartesian_layout.get():
+            sorted_agents = sorted(agent_registry.items(), key=lambda x: x[0])
+            agent_points = [coord for _, coord in sorted_agents]
+
+            # 🟢 Choose the layout mode
+            if self.use_adaptive_layout.get():
+                layout_segments = adaptive_layout.adaptive_physical_layout(
+                    path_list, matrix, agent_points
+                )
+                adaptive_layout.draw_adaptive_layout(self.canvas, layout_segments)
+            elif self.use_cartesian_layout.get():
                 self.draw_cartesian_path(path_list, loop_map)
             else:
                 self.draw_grid(matrix, path_list, loop_map)
 
+            # 🟡 Update path display
             self.path_text.delete("1.0", tk.END)
             formatted_path = "\n".join([f"{point}" for point in path_list])
             self.path_text.insert(tk.END, formatted_path + "\n")
@@ -494,41 +515,6 @@ class Knot_GUI:
             self.crossing_number_label.config(
                 text=f"Total number of crossings: {crossNumber}"
             )
-
-            # ---- NEW SECTION-BASED CROSSING CHECK ONLY ----
-            sorted_agents = sorted(agent_registry.items(), key=lambda x: x[0])
-            agent_points = [coord for _, coord in sorted_agents]
-            sections = self.split_into_sections_by_agents(path_list, agent_points)
-
-            self.path_text.insert(tk.END, "\nSection Analysis:\n")
-            for idx, section in enumerate(sections):
-                has_crossing = False
-                for i in range(len(section) - 1):
-                    a1 = section[i][:2]
-                    a2 = section[i + 1][:2]
-                    for sidx in range(idx):
-                        prev_section = sections[sidx]
-                        for j in range(len(prev_section) - 1):
-                            b1 = prev_section[j][:2]
-                            b2 = prev_section[j + 1][:2]
-                            if self.segments_cross(a1, a2, b1, b2, set(agent_points)):
-                                if not has_crossing:
-                                    self.path_text.insert(
-                                        tk.END, f"  Section {idx+1}:\n"
-                                    )
-                                    has_crossing = True
-                                cross_point = self.get_segment_intersection(
-                                    a1, a2, b1, b2
-                                )
-                                if cross_point:
-                                    self.path_text.insert(
-                                        tk.END, f"    cross at {cross_point}\n"
-                                    )
-                if not has_crossing:
-                    self.path_text.insert(tk.END, f"  Section {idx+1}: straight pass\n")
-
-            self.path_text.insert(tk.END, "\n")
-            self.path_text.see(tk.END)
 
         except Exception as e:
             messagebox.showerror("Error", f"Invalid input: {e}")
