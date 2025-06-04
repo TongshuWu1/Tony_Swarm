@@ -175,14 +175,11 @@ def handle_loop(matrixA, loop, processed_regions, entryPoint, exitPoint, path_li
                 return curr
         return None
 
-    corner_indices = {
-        "top_left": min(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
-        "top_right": min(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
-        "bottom_right": max(range(len(loop)), key=lambda i: (loop[i][0], loop[i][1])),
-        "bottom_left": max(range(len(loop)), key=lambda i: (loop[i][0], -loop[i][1])),
-    }
+    # Use loop traversal order to find agents
+    MAX_AGENTS_PER_LOOP = 4
+    step_size = max(1, len(loop) // MAX_AGENTS_PER_LOOP)
 
-    for _, idx in corner_indices.items():
+    for idx in range(0, len(loop), step_size):
         corner = find_best_agent_point(idx, loop)
         if not corner:
             loop_exit = loop[-1]

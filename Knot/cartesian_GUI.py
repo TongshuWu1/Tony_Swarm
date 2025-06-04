@@ -7,8 +7,6 @@ import math
 
 class cartesian_GUI:
     def __init__(self, root):
-
-
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
         self.root.geometry("1000x700")
@@ -16,28 +14,46 @@ class cartesian_GUI:
         self.animation_running = False
         self.animation_job = None
 
+        self.last_scale = 1.0
+        self.base_cell_size = 40
+        self.zoom_scale = 1.0
+        self.base_font_size = 10
 
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.animation_running = False
-        self.animation_job = None
-
         self.my_canvas = tk.Canvas(main_frame)
         self.my_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.my_scrollbar = tk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.my_canvas.yview)
-        self.my_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Vertical scrollbar
+        self.my_scrollbar_y = tk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.my_canvas.yview)
+        self.my_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.my_canvas.configure(yscrollcommand=self.my_scrollbar.set)
+        # Horizontal scrollbar
+        self.my_scrollbar_x = tk.Scrollbar(self.root, orient=tk.HORIZONTAL, command=self.my_canvas.xview)
+        self.my_scrollbar_x.pack(fill=tk.X, side=tk.BOTTOM)
+
+        # Attach scrollbars to canvas
+        self.my_canvas.configure(yscrollcommand=self.my_scrollbar_y.set, xscrollcommand=self.my_scrollbar_x.set)
+
         self.my_canvas.bind("<Configure>", lambda e: self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all")))
         self.my_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.root.bind_all("<Control-MouseWheel>", self._on_ctrl_mousewheel)
 
         self.second_frame = tk.Frame(self.my_canvas)
         self.my_canvas.create_window((0, 0), window=self.second_frame, anchor="nw")
 
         self.label_title = tk.Label(self.second_frame, text="Agent Reduction", font=("Arial", 18), fg="black", bg="lightgray")
         self.label_title.pack(pady=10, fill=tk.X)
+
+        zoom_button_frame = tk.Frame(self.second_frame)
+        zoom_button_frame.pack(pady=5, anchor="w")
+
+        self.zoom_in_btn = tk.Button(zoom_button_frame, text="+", width=3, command=self.zoom_in)
+        self.zoom_in_btn.pack(side=tk.LEFT, padx=(10, 2))
+
+        self.zoom_out_btn = tk.Button(zoom_button_frame, text="−", width=3, command=self.zoom_out)
+        self.zoom_out_btn.pack(side=tk.LEFT)
 
         self.matrix_name_label = tk.Label(self.second_frame, text="Matrix Name:")
         self.matrix_name_label.pack()
@@ -84,6 +100,11 @@ class cartesian_GUI:
         self.run_button = tk.Button(self.second_frame, text="Run Agent Reduction", command=self.run_algorithm)
         self.run_button.pack(pady=10)
 
+        self.show_matrix_overlay = tk.BooleanVar()
+        self.matrix_overlay_checkbox = tk.Checkbutton(self.second_frame, text="Show Matrix Overlay",
+                                                      variable=self.show_matrix_overlay, command=self.run_algorithm)
+        self.matrix_overlay_checkbox.pack(pady=5)
+
         self.result_frame = tk.Frame(self.second_frame)
         self.result_frame.pack(pady=10, fill=tk.BOTH, expand=True)
 
@@ -97,11 +118,6 @@ class cartesian_GUI:
         self.path_title_label = tk.Label(self.output_frame, text="Path from Entry to Exit:")
         self.path_title_label.pack()
 
-        self.show_matrix_overlay = tk.BooleanVar()
-        self.matrix_overlay_checkbox = tk.Checkbutton(self.second_frame, text="Show Matrix Overlay",
-                                                      variable=self.show_matrix_overlay, command=self.run_algorithm)
-        self.matrix_overlay_checkbox.pack(pady=5)
-
         self.path_text = tk.Text(self.output_frame, height=20, width=40)
         self.path_text.pack(fill=tk.BOTH, expand=True)
 
@@ -114,6 +130,95 @@ class cartesian_GUI:
         self.crossing_number_label = tk.Label(self.output_frame, text="Total number of crossings: ")
         self.crossing_number_label.pack()
 
+    def zoom_in(self):
+        self.zoom_scale = min(3.0, self.zoom_scale + 0.1)
+        self.apply_full_zoom()
+
+    def zoom_out(self):
+        self.zoom_scale = max(0.5, self.zoom_scale - 0.1)
+        self.apply_full_zoom()
+
+    def _on_ctrl_mousewheel(self, event):
+        if event.delta > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+
+    def set_zoom(self, scale):
+        scale = max(0.5, min(scale, 3.0))
+        if abs(scale - self.last_scale) < 0.01:
+            return
+
+        # Calculate relative scale factor
+        factor = scale / self.last_scale
+        self.last_scale = scale
+
+        # Scale all canvas elements around origin
+        self.canvas.scale("all", 0, 0, factor, factor)
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.my_canvas.update_idletasks()
+        self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
+
+    def scale_widgets(self, scale):
+        font_base = int(10 * scale)
+        big_font = ("Arial", max(12, int(14 * scale)))
+        small_font = ("Arial", max(8, font_base - 2))
+
+        self.label_title.config(font=big_font)
+        self.matrix_label.config(font=font_base)
+        self.matrix_name_label.config(font=font_base)
+        self.notes_label.config(font=font_base)
+        self.path_title_label.config(font=font_base)
+        self.original_points_label.config(font=font_base)
+        self.agents_needed_label.config(font=font_base)
+        self.crossing_number_label.config(font=font_base)
+
+        self.matrix_text.config(font=font_base)
+        self.notes_text.config(font=font_base)
+        self.path_text.config(font=font_base)
+        self.entry_point.config(font=font_base)
+        self.exit_point.config(font=font_base)
+        self.save_button.config(font=font_base)
+        self.load_button.config(font=font_base)
+        self.clear_button.config(font=font_base)
+        self.run_button.config(font=font_base)
+        self.matrix_overlay_checkbox.config(font=font_base)
+
+        self.cell_size = int(self.base_cell_size * scale)
+        self.run_algorithm()
+
+    def apply_full_zoom(self):
+        scale = self.zoom_scale
+        font_size = int(self.base_font_size * scale)
+
+        font_normal = ("Arial", font_size)
+        font_title = ("Arial", int(font_size * 1.8))
+
+        widgets = [
+            self.label_title, self.matrix_label, self.matrix_name_label, self.notes_label,
+            self.path_title_label, self.original_points_label, self.agents_needed_label,
+            self.crossing_number_label, self.save_button, self.load_button, self.clear_button,
+            self.run_button, self.matrix_overlay_checkbox
+        ]
+
+        for widget in widgets:
+            widget.config(font=font_normal)
+
+        self.label_title.config(font=font_title)
+
+        self.matrix_text.config(font=font_normal, height=int(8 * scale), width=int(50 * scale))
+        self.notes_text.config(font=font_normal, height=int(4 * scale), width=int(50 * scale))
+        self.path_text.config(font=font_normal, height=int(20 * scale), width=int(40 * scale))
+        self.entry_point.config(font=font_normal, width=int(10 * scale))
+        self.exit_point.config(font=font_normal, width=int(10 * scale))
+
+        self.cell_size = int(40 * scale)
+
+        self.run_algorithm()  # redraw canvas/grid with new size
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
         self.my_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -121,6 +226,7 @@ class cartesian_GUI:
     def on_canvas_resize(self, event):
         self.canvas_width = event.width
         self.canvas_height = event.height
+
 
     def clear_all(self):
         self.matrix_name_entry.delete(0, tk.END)
@@ -216,11 +322,19 @@ class cartesian_GUI:
     def run_algorithm(self):
         try:
             matrix_str = self.matrix_text.get("1.0", tk.END).strip()
+            if not matrix_str:
+                return  # no matrix to process
+
             matrix_lines = matrix_str.split("\n")
             matrix = [list(map(int, line.split(','))) for line in matrix_lines if line.strip()]
 
-            entry = tuple(map(int, self.entry_point.get().strip().split(',')))
-            exit_ = tuple(map(int, self.exit_point.get().strip().split(',')))
+            entry_text = self.entry_point.get().strip()
+            exit_text = self.exit_point.get().strip()
+            if not entry_text or not exit_text or ',' not in entry_text or ',' not in exit_text:
+                return  # missing or invalid entry/exit input
+
+            entry = tuple(map(int, entry_text.split(',')))
+            exit_ = tuple(map(int, exit_text.split(',')))
 
             path, head, crossNumber, loop_map = Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             self.loop_map = loop_map
@@ -290,7 +404,8 @@ class cartesian_GUI:
             if pt_type == "agent":
                 x = c * self.cell_size + self.cell_size // 2
                 y = r * self.cell_size + self.cell_size // 2
-                self.canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="blue")
+                radius = 6
+                self.canvas.create_oval(x - radius, y - radius, x + radius, y + radius, fill="gold")
 
         if path:
             entry_r, entry_c = path[0][:2]
@@ -356,6 +471,9 @@ class cartesian_GUI:
             elif c1 == c2:
                 self.canvas.create_line(x1, y1, x2, y2, fill="black", width=4,arrow=tk.LAST)
                 self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
+
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
 
     def _draw_marker(self, r, c, color):
         x = c * self.cell_size + self.cell_size // 2
