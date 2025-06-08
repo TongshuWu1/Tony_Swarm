@@ -4,13 +4,15 @@ import os
 import region_detection as Agent_reduction
 import colorsys
 import math
+from knot_drawer import ShapelyGUI
 
 
 class Knot_GUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
-        self.root.geometry("1000x700")
+        self.root.geometry("1400x800")  # Increased size to accommodate knot drawer
+
         self.canvas_path_items = []
         self.animation_running = False
         self.animation_job = None
@@ -20,30 +22,31 @@ class Knot_GUI:
         self.zoom_scale = 1.0
         self.base_font_size = 10
 
+        # === Main Layout Frame ===
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.my_canvas = tk.Canvas(main_frame)
+        # === Left Panel: Agent UI ===
+        self.left_panel = tk.Frame(main_frame)
+        self.left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.my_canvas = tk.Canvas(self.left_panel)
         self.my_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Vertical scrollbar
         self.my_scrollbar_y = tk.Scrollbar(
-            main_frame, orient=tk.VERTICAL, command=self.my_canvas.yview
+            self.left_panel, orient=tk.VERTICAL, command=self.my_canvas.yview
         )
         self.my_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Horizontal scrollbar
         self.my_scrollbar_x = tk.Scrollbar(
             self.root, orient=tk.HORIZONTAL, command=self.my_canvas.xview
         )
         self.my_scrollbar_x.pack(fill=tk.X, side=tk.BOTTOM)
 
-        # Attach scrollbars to canvas
         self.my_canvas.configure(
             yscrollcommand=self.my_scrollbar_y.set,
             xscrollcommand=self.my_scrollbar_x.set,
         )
-
         self.my_canvas.bind(
             "<Configure>",
             lambda e: self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all")),
@@ -191,6 +194,20 @@ class Knot_GUI:
             self.output_frame, text="Total number of crossings: "
         )
         self.crossing_number_label.pack()
+
+        # === Right Panel: Knot Drawing Section ===
+
+        self.knot_panel = tk.Frame(main_frame, width=600)
+        self.knot_panel.pack(side=tk.LEFT, fill=tk.Y, padx=10)
+
+        self.knot_drawer = ShapelyGUI(self.knot_panel)
+
+        self.draw_sections_btn = tk.Button(
+            self.knot_panel,
+            text="Draw Cable Sections",
+            command=self.draw_sections_in_drawer,
+        )
+        self.draw_sections_btn.pack(pady=5)
 
     def zoom_in(self):
         self.zoom_scale = min(3.0, self.zoom_scale + 0.1)
@@ -409,6 +426,12 @@ class Knot_GUI:
 
     import math
 
+    def draw_sections_in_drawer(self):
+        if hasattr(self, "section_list"):
+            self.knot_drawer.draw_sections(self.section_list, self.agent_points)
+        else:
+            messagebox.showwarning("No Data", "Run the algorithm first.")
+
     def run_algorithm(self):
         try:
             matrix_str = self.matrix_text.get("1.0", tk.END).strip()
@@ -433,9 +456,12 @@ class Knot_GUI:
             entry = tuple(map(int, entry_text.split(",")))
             exit_ = tuple(map(int, exit_text.split(",")))
 
-            path, head, crossNumber, loop_map, agent_registry = (
+            path, head, crossNumber, loop_map, agent_registry, sections = (
                 Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             )
+            self.section_list = sections
+            self.agent_points = set(agent_registry.values())  # ✅ <-- this line added
+
             self.loop_map = loop_map
 
             path_list = []
@@ -443,7 +469,11 @@ class Knot_GUI:
             while current_node:
                 r, c = current_node.data
                 pt_type = current_node.point_identifier
+
                 path_list.append((r, c, pt_type))
+
+                if (r, c) == exit_:
+                    break  # ✅ now break after appending the exit point
                 current_node = current_node.next
 
             self.crossing_points = set(
@@ -498,16 +528,18 @@ class Knot_GUI:
             # ---- NEW SECTION-BASED CROSSING CHECK ONLY ----
             sorted_agents = sorted(agent_registry.items(), key=lambda x: x[0])
             agent_points = [coord for _, coord in sorted_agents]
-            sections = self.split_into_sections_by_agents(path_list, agent_points)
+            sections_for_check = self.split_into_sections_by_agents(
+                path_list, agent_points
+            )
 
             self.path_text.insert(tk.END, "\nSection Analysis:\n")
-            for idx, section in enumerate(sections):
+            for idx, section in enumerate(sections_for_check):
                 has_crossing = False
                 for i in range(len(section) - 1):
                     a1 = section[i][:2]
                     a2 = section[i + 1][:2]
                     for sidx in range(idx):
-                        prev_section = sections[sidx]
+                        prev_section = sections_for_check[sidx]
                         for j in range(len(prev_section) - 1):
                             b1 = prev_section[j][:2]
                             b2 = prev_section[j + 1][:2]
@@ -534,6 +566,10 @@ class Knot_GUI:
             messagebox.showerror("Error", f"Invalid input: {e}")
 
     def draw_grid(self, matrix, path, loop_map):
+        print("Redrawing grid...")
+        print(f"Path: {path}")
+        print(f"Matrix size: {len(matrix)}x{len(matrix[0])}")
+
         self.canvas.delete("all")
         self.canvas_path_items = []
 

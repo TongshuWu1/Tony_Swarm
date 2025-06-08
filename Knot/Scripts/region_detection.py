@@ -8,6 +8,33 @@ next_agent_id = 1
 next_loop_id = 1
 
 
+# Add these classes at the top of your file
+class Section:
+    def __init__(self, section_id, start, end, over_under, crossings):
+        self.id = section_id
+        self.start = start
+        self.end = end
+        self.over_under = over_under  # 1: overpass, -1: underpass, 0: none
+        self.crossings = crossings
+
+    def __repr__(self):
+        kind = (
+            "Overpass"
+            if self.over_under == 1
+            else "Underpass" if self.over_under == -1 else "Flat"
+        )
+        return f"Section {self.id}: {self.start} -> {self.end} [{kind}], crosses: {list(self.crossings)}"
+
+
+class TurningPoint:
+    def __init__(self, point, is_agent=False):
+        self.point = point
+        self.is_agent = is_agent
+
+    def __repr__(self):
+        return f"{'Agent' if self.is_agent else 'Turn'}@{self.point}"
+
+
 def reset_globals():
     global agent_registry, loop_registry, next_agent_id, next_loop_id
     agent_registry = {}
@@ -50,6 +77,43 @@ def read_path():
                 break
 
     return matrixA, entryPoint, exitPoint
+
+
+def determine_crossing_behavior(start, end, matrixA):
+    r1, c1 = start
+    r2, c2 = end
+
+    crossing_cells = set()
+    over = False
+    under = False
+
+    if r1 == r2:  # Horizontal
+        for c in range(min(c1, c2) + 1, max(c1, c2)):
+            if matrixA[r1][c] == 3:
+                crossing_cells.add((r1, c))
+                if matrixA[start[0]][start[1]] == 1:
+                    under = True
+                elif matrixA[start[0]][start[1]] == -1:
+                    over = True
+
+    elif c1 == c2:  # Vertical
+        for r in range(min(r1, r2) + 1, max(r1, r2)):
+            if matrixA[r][c1] == 3:
+                crossing_cells.add((r, c1))
+                if matrixA[start[0]][start[1]] == 1:
+                    under = True
+                elif matrixA[start[0]][start[1]] == -1:
+                    over = True
+
+    if over and not under:
+        return 1, crossing_cells
+    elif under and not over:
+        return -1, crossing_cells
+    elif over and under:
+        print(f"⚠️ Conflicting crossing behavior: {start}->{end}")
+        return 0, crossing_cells
+    else:
+        return 0, crossing_cells  # No crossing
 
 
 def search_next_turn(matrixA, row, col, direction):
@@ -256,13 +320,21 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
     processed_regions = set()
     seen_loops = set()
     loop_id = 1
+    section_id = 1
 
-    agent_registry[next_agent_id] = entryPoint  # Entry point as agent 1
+    turning_points = [TurningPoint(entryPoint, is_agent=True)]
+    sections = []
+
+    agent_registry[next_agent_id] = entryPoint
     next_agent_id += 1
 
     direction = find_starting_direction(matrixA, entryPoint[0], entryPoint[1])
     if not direction:
-        return [], set(), {}
+        return [], set(), {}, []
+
+    prev_turn = currentPoint
+    prev_dir = direction
+    section_points_buffer = []
 
     while currentPoint != exitPoint:
         nextPoint = search_next_turn(
@@ -278,6 +350,7 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             step = 1 if col2 > col1 else -1
             for c in range(col1 + step, col2 + step, step):
                 pt = (row1, c)
+                section_points_buffer.append(pt)
                 loop = detect_loop(path_list, path_set, pt)
                 if loop and tuple(loop) not in seen_loops:
                     seen_loops.add(tuple(loop))
@@ -297,10 +370,11 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
                         loop_id += 1
                 path_list.append(pt)
                 path_set.add(pt)
-        else:
+        else:  # column direction
             step = 1 if row2 > row1 else -1
             for r in range(row1 + step, row2 + step, step):
                 pt = (r, col1)
+                section_points_buffer.append(pt)
                 loop = detect_loop(path_list, path_set, pt)
                 if loop and tuple(loop) not in seen_loops:
                     seen_loops.add(tuple(loop))
@@ -320,17 +394,119 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
                         loop_id += 1
                 path_list.append(pt)
                 path_set.add(pt)
+
+        if direction != prev_dir:
+            is_agent = currentPoint in all_agents
+            turning_points.append(TurningPoint(currentPoint, is_agent=is_agent))
+
+            sec_points = set(section_points_buffer)
+            sec_points.add(prev_turn)
+            sec_points.add(currentPoint)
+
+            sec = Section(
+                section_id=section_id,
+                start=prev_turn,
+                end=currentPoint,
+                over_under=0,
+                crossings=[],
+            )
+            sec.points = sec_points
+            sections.append(sec)
+
+            section_points_buffer = []
+            section_id += 1
+            prev_turn = currentPoint
+            prev_dir = direction
 
         currentPoint = nextPoint
         direction = "col" if direction == "row" else "row"
 
-    agent_registry[next_agent_id] = exitPoint  # Exit point as last agent
+    # Ensure final turning point is added
+    turning_points.append(TurningPoint(exitPoint, is_agent=True))
+    agent_registry[next_agent_id] = exitPoint
+    next_agent_id += 1
+
+    # ✅ FINAL SECTION FIX — Only correction
+    if prev_turn != exitPoint:
+        row1, col1 = prev_turn
+        row2, col2 = exitPoint
+
+        if row1 == row2:
+            step = 1 if col2 > col1 else -1
+            for c in range(col1 + step, col2 + step, step):
+                pt = (row1, c)
+                section_points_buffer.append(pt)
+                path_list.append(pt)
+                path_set.add(pt)
+        elif col1 == col2:
+            step = 1 if row2 > row1 else -1
+            for r in range(row1 + step, row2 + step, step):
+                pt = (r, col1)
+                section_points_buffer.append(pt)
+                path_list.append(pt)
+                path_set.add(pt)
+
+        sec = Section(
+            section_id=section_id,
+            start=prev_turn,
+            end=exitPoint,
+            over_under=0,
+            crossings=[],
+        )
+        sec.points = set(section_points_buffer + [prev_turn, exitPoint])
+        sections.append(sec)
+        section_id += 1
+
+    crossing_points_set = {
+        (r, c)
+        for r in range(len(matrixA))
+        for c in range(len(matrixA[0]))
+        if matrixA[r][c] == 3
+    }
+    used_crossings = set()
+    seen_so_far = set()
+    pending_crosses = []
+
+    for sec in sections:
+        crosses = []
+        crosses.extend(pending_crosses)
+        pending_crosses = []
+        for pt in sec.points:
+            if (
+                pt in crossing_points_set
+                and pt in seen_so_far  # means it's a real crossing (visited earlier)
+                and pt not in used_crossings
+                and pt != sec.start
+                and pt != sec.end
+            ):
+                pending_crosses.append(pt)
+                used_crossings.add(pt)
+                print(f"👉 Will assign crossing {pt} to Section {sec.id + 1}")
+        sec.crossings = sorted(crosses)
+        seen_so_far.update(sec.points)
+
+        val_start = matrixA[sec.start[0]][sec.start[1]]
+        val_end = matrixA[sec.end[0]][sec.end[1]]
+        if val_start == 1 and val_end == -1:
+            sec.over_under = -1
+        elif val_start == -1 and val_end == 1:
+            sec.over_under = 1
+        else:
+            sec.over_under = 0
 
     print("\n✅ Final Agent Assignment:")
     for agent_id in sorted(agent_registry):
         print(f"  Agent {agent_id}: {agent_registry[agent_id]}")
 
-    return path_list, all_agents, loop_registry
+    print("\n📐 Turning Points Summary:")
+    for tp in turning_points:
+        print(f"  {tp}")
+
+    print("\n🔍 Sections Summary:")
+    for section in sections:
+        print(f"  {section}")
+
+    return path_list, set(agent_registry.values()), loop_registry, sections
 
 
 def mark_inverse_path(matrixA, entryPoint, exitPoint):
@@ -368,7 +544,10 @@ def mark_inverse_path(matrixA, entryPoint, exitPoint):
 
 def compute_agent_reduction(matrixA, entryPoint, exitPoint):
     mark_inverse_path(matrixA, entryPoint, exitPoint)
-    full_path, agent_points, loop_map = trace_knot_path(matrixA, entryPoint, exitPoint)
+    full_path, agent_points, loop_map, sections = trace_knot_path(
+        matrixA, entryPoint, exitPoint
+    )
+
     head = None
     prev = None
     for point in full_path:
@@ -390,7 +569,7 @@ def compute_agent_reduction(matrixA, entryPoint, exitPoint):
         print(f"     Path Points: {path}")
         print(f"     Agents: {agents}")
 
-    return full_path, head, cross_count, loop_map, agent_registry
+    return full_path, head, cross_count, loop_map, agent_registry, sections
 
 
 if __name__ == "__main__":
@@ -411,3 +590,7 @@ if __name__ == "__main__":
         print(f"  🔁 Loop #{loop_id}:")
         print(f"     Path Points: {path}")
         print(f"     Agents: {agents}")
+
+    print("\n🧩 Final Matrix State:")
+    for row in matrixA:
+        print("  " + " ".join(f"{cell:2}" for cell in row))

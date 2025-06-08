@@ -3,9 +3,7 @@ from tkinter import messagebox, filedialog
 import os
 import region_detection as Agent_reduction
 import colorsys
-import math
 import adaptive_layout
-from shapely.geometry import LineString
 
 
 class Knot_GUI:
@@ -417,8 +415,6 @@ class Knot_GUI:
                 )
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load matrix: {e}")
-
-    import math
 
     def run_algorithm(self):
         try:
