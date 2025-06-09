@@ -464,7 +464,9 @@ class Knot_GUI:
                 Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             )
             self.section_list = sections
-            self.agent_points = set(agent_registry.values())  # ✅ <-- this line added
+            self.agent_points = {
+                point.pos_2d() for point in agent_registry.values()
+            }  # ✅ fixed
 
             self.loop_map = loop_map
 
