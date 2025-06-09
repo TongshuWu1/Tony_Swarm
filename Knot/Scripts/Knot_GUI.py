@@ -11,7 +11,8 @@ class Knot_GUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
-        self.root.geometry("1400x800")  # Increased size to accommodate knot drawer
+        # Make window full screen
+        self.root.attributes("-fullscreen", True)
 
         self.canvas_path_items = []
         self.animation_running = False
@@ -312,6 +313,7 @@ class Knot_GUI:
         self.run_algorithm()  # redraw canvas/grid with new size
         self.canvas.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.my_canvas.update_idletasks()
         self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
@@ -320,6 +322,8 @@ class Knot_GUI:
     def on_canvas_resize(self, event):
         self.canvas_width = event.width
         self.canvas_height = event.height
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
 
     def clear_all(self):
         self.matrix_name_entry.delete(0, tk.END)
