@@ -59,7 +59,7 @@ def on_click(event):
         print("Click is outside the square.")
         return
 
-    # Compute (u, v) in square space
+    # Computu, e (v) in square space
     u, v = np.linalg.inv(M) @ (E - np.array(A))
 
     if not (0 <= u <= 1 and 0 <= v <= 1):

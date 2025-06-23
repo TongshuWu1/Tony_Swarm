@@ -240,8 +240,6 @@ def handle_loop(
     processed_regions.update(enclosed_area)
     processed_regions.update(loop)
 
-    agent_points = []
-
     def is_turning_point(prev, curr, nxt):
         dr1, dc1 = curr[0] - prev[0], curr[1] - prev[1]
         dr2, dc2 = nxt[0] - curr[0], nxt[1] - curr[1]
@@ -278,17 +276,40 @@ def handle_loop(
                 return curr
         return None
 
-    # Use loop traversal order to find agents
-    MAX_AGENTS_PER_LOOP = 4
-    step_size = max(1, len(loop) // MAX_AGENTS_PER_LOOP)
+    def select_priority_agents(loop):
+        strand_points = [pt for pt in loop if knot_manager.matrix[pt[0]][pt[1]] in {1, -1}]
+        if len(strand_points) < 4:
+            return []
 
-    for idx in range(0, len(loop), step_size):
-        corner = find_best_agent_point(idx, loop)
-        if not corner:
-            loop_exit = loop[-1]
-            corner = find_next_valid_turn_after_loop(loop_exit, path_list)
-        if corner and corner not in agent_points:
-            agent_points.append(corner)
+        extremes = []
+        for key_func in [
+            lambda p: p[1],  # min x
+            lambda p: -p[1], # max x
+            lambda p: p[0],  # min y
+            lambda p: -p[0], # max y
+        ]:
+            sorted_pts = sorted(strand_points, key=key_func)
+            for pt in sorted_pts:
+                if pt not in extremes:
+                    extremes.append(pt)
+                    break
+
+        return extremes
+
+    # First attempt: use geometric extreme corners
+    agent_points = select_priority_agents(loop)
+
+    # Fallback if not enough points
+    if len(agent_points) < 4:
+        MAX_AGENTS_PER_LOOP = 4
+        step_size = max(1, len(loop) // MAX_AGENTS_PER_LOOP)
+        for idx in range(0, len(loop), step_size):
+            corner = find_best_agent_point(idx, loop)
+            if not corner:
+                loop_exit = loop[-1]
+                corner = find_next_valid_turn_after_loop(loop_exit, path_list)
+            if corner and corner not in agent_points:
+                agent_points.append(corner)
 
     new_agents = [
         pt
@@ -310,7 +331,6 @@ def handle_loop(
         print(f"    Agent {agent_id}: {agent}")
 
     return set(new_agents)
-
 
 # Full corrected `trace_knot_path` function with accurate turning point detection
 

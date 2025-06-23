@@ -101,7 +101,7 @@ def step():
         forces = compute_forces()
         for k in p_coords:
             dt = 1.0
-            damping = 0.98
+            damping = 0.99
             p_velocities[k] += dt * forces[k]
             p_velocities[k] *= damping
             p_coords[k] += dt * p_velocities[k]
