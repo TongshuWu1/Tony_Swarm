@@ -12,7 +12,7 @@ class Knot_GUI:
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
         # Make window full screen
-        self.root.attributes("-fullscreen", True)
+        # self.root.attributes("-fullscreen", True)
 
         self.canvas_path_items = []
         self.animation_running = False
