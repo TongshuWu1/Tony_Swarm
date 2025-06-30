@@ -7,6 +7,7 @@ import math
 from knot_drawer import ShapelyGUI
 
 
+
 class Knot_GUI:
     def __init__(self, root):
         self.root = root
