@@ -3,12 +3,14 @@ import math
 from shapely.geometry import LineString, Point
 from region_detection import compute_agent_reduction, knot_manager
 
+
 class KnotPoint:
     def __init__(self, point_id, x, y, is_agent):
         self.id = point_id
         self.pos = (x, y)
         self.is_agent = is_agent
         self.locked = is_agent
+
 
 class KnotSegment:
     def __init__(self, seg_id, p1_id, p2_id, is_overpass):
@@ -23,8 +25,10 @@ def update_gaps_and_crossings(points, segments):
     for seg in segments:
         seg.gap_at.clear()
     segment_layers = {}
+
     def seg_line(seg):
         return LineString([points[seg.p1].pos, points[seg.p2].pos])
+
     for i, seg1 in enumerate(segments):
         line1 = seg_line(seg1)
         for j in range(i + 1, len(segments)):
@@ -43,36 +47,30 @@ def update_gaps_and_crossings(points, segments):
     return segment_layers
 
 
-def generate_segment_with_turns(p1, p2, is_overpass, points, segments):
-    new_points = []
-    new_segments = []
-    line = LineString([p1.pos, p2.pos])
-    existing_lines = [(seg, LineString([points[seg.p1].pos, points[seg.p2].pos])) for seg in segments]
-    crossings = []
-    for seg, other_line in existing_lines:
-        if line.crosses(other_line):
-            pt = line.intersection(other_line)
-            if pt.geom_type == "Point":
-                crossings.append((pt, seg))
+def find_topology_preserving_endpoint(p1, section, existing_segments, points):
+    target_cross_segment = section.cross_target_id
+    is_overpass = section.over_under == 1
+    origin = p1.pos
+    test_radius = 80
 
-    crossings.sort(key=lambda c: line.project(c[0]))
-    current_point = p1
-    for pt, crossed_seg in crossings:
-        dx = pt.x - current_point.pos[0]
-        dy = pt.y - current_point.pos[1]
-        norm = math.hypot(dx, dy)
-        if norm == 0:
-            continue
-        offset = 10
-        tx = current_point.pos[0] + dx / norm * (norm - offset)
-        ty = current_point.pos[1] + dy / norm * (norm - offset)
-        turn_pt = KnotPoint(len(points) + len(new_points), tx, ty, False)
-        new_points.append(turn_pt)
-        new_segments.append(KnotSegment(len(segments) + len(new_segments), current_point.id, turn_pt.id, is_overpass))
-        current_point = turn_pt
-
-    new_segments.append(KnotSegment(len(segments) + len(new_segments), current_point.id, p2.id, is_overpass))
-    return new_points, new_segments
+    for dx in range(-test_radius, test_radius + 1, 5):
+        for dy in range(-test_radius, test_radius + 1, 5):
+            if dx == 0 and dy == 0:
+                continue
+            candidate = (origin[0] + dx, origin[1] + dy)
+            test_line = LineString([origin, candidate])
+            valid = False
+            for seg in existing_segments:
+                seg_line = LineString([points[seg.p1].pos, points[seg.p2].pos])
+                if test_line.crosses(seg_line):
+                    if seg.id == target_cross_segment:
+                        valid = True if is_overpass != seg.is_overpass else False
+                    else:
+                        valid = False
+                        break
+            if valid:
+                return candidate
+    return None
 
 
 class ShapelyGUI:
@@ -91,11 +89,14 @@ class ShapelyGUI:
         self.remaining_sections = []
         self.agent_points_set = set()
         self.id_map = {}
+        self.last_locked_point = None
 
         button_frame = tk.Frame(parent)
         button_frame.pack()
         tk.Button(button_frame, text="Clear", command=self.clear).pack(side=tk.LEFT)
-        tk.Button(button_frame, text="Generate", command=self.initialize_drawing).pack(side=tk.LEFT)
+        tk.Button(button_frame, text="Generate", command=self.initialize_drawing).pack(
+            side=tk.LEFT
+        )
         tk.Button(button_frame, text="Next Step", command=self.step).pack(side=tk.LEFT)
 
         self.parent.after(20, self.relax_loop)
@@ -105,6 +106,7 @@ class ShapelyGUI:
         self.segments.clear()
         self.remaining_sections.clear()
         self.id_map.clear()
+        self.last_locked_point = None
         self.canvas.delete("all")
         self.redraw()
 
@@ -131,7 +133,9 @@ class ShapelyGUI:
             x, y = pt.pos
             color = "white" if pt.is_agent else "black"
             outline = "red" if pt.is_agent else ""
-            self.canvas.create_oval(x - 5, y - 5, x + 5, y + 5, fill=color, outline=outline)
+            self.canvas.create_oval(
+                x - 5, y - 5, x + 5, y + 5, fill=color, outline=outline
+            )
 
     def draw_segment(self, p1, p2):
         self.canvas.create_line(*p1, *p2, fill="black", width=2)
@@ -139,7 +143,10 @@ class ShapelyGUI:
     def draw_with_gaps(self, p1, p2, gaps, gap_size=15):
         line = LineString([p1, p2])
         length = line.length
-        ranges = [(line.project(pt) - gap_size / 2, line.project(pt) + gap_size / 2) for pt, _ in gaps]
+        ranges = [
+            (line.project(pt) - gap_size / 2, line.project(pt) + gap_size / 2)
+            for pt, _ in gaps
+        ]
         draw_ranges = []
         cursor = 0.0
         for start, end in sorted(ranges):
@@ -160,17 +167,9 @@ class ShapelyGUI:
             entry = knot_manager.entry
             exit = knot_manager.exit
             _, _, _, _, _, section_list = compute_agent_reduction(matrix, entry, exit)
-            self.agent_points_set = {p.pos_2d() for p in knot_manager.agent_registry.values()}
-            raw_pts = list({pt for sec in section_list for pt in [sec.start, sec.end]})
-            scale = 40
-            offset_x = 100
-            offset_y = 100
-            for pt in raw_pts:
-                x, y = pt[1] * scale + offset_x, pt[0] * scale + offset_y
-                new_pt = self.add_point(x, y, pt in self.agent_points_set)
-                self.id_map[pt] = new_pt
             self.remaining_sections = section_list
-            self.step()
+            self.last_locked_point = self.add_point(100, 100, is_agent=True)
+            self.redraw()
         except Exception as e:
             import traceback
             print("Initialization failed:", e)
@@ -179,30 +178,26 @@ class ShapelyGUI:
     def step(self):
         if self.relax_in_progress:
             return
-
         if not self.remaining_sections:
             print("All segments added.")
             return
 
         sec = self.remaining_sections.pop(0)
-        p1 = self.id_map[sec.start]
-        p2 = self.id_map[sec.end]
-        is_over = sec.over_under == 1
+        p1 = self.last_locked_point
+        new_pos = find_topology_preserving_endpoint(p1, sec, self.segments, self.points)
+        if new_pos is None:
+            print("⚠️ Could not find valid endpoint, skipping section.")
+            return
 
-        if p1.is_agent and p2.is_agent:
-            new_pts, new_segs = generate_segment_with_turns(p1, p2, is_over, self.points, self.segments)
-            for pt in new_pts:
-                self.points.append(pt)
-            for seg in new_segs:
-                self.segments.append(seg)
-            update_gaps_and_crossings(self.points, self.segments)
-            self.initial_topology = update_gaps_and_crossings(self.points, self.segments)
-            self.previous_positions = [pt.pos for pt in self.points]
-            self.relax_in_progress = True
-            self.relax_pair = (p1, p2)
-        else:
-            self.add_segment(p1, p2, is_over)
-            self.redraw()
+        new_pt = self.add_point(new_pos[0], new_pos[1], is_agent=True)
+        new_seg = KnotSegment(len(self.segments), p1.id, new_pt.id, sec.over_under == 1)
+        self.segments.append(new_seg)
+        update_gaps_and_crossings(self.points, self.segments)
+
+        self.relax_in_progress = True
+        self.relax_pair = (p1, new_pt)
+        self.last_locked_point = new_pt
+        self.redraw()
 
     def relax_loop(self):
         self.relax_step()
