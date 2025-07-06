@@ -5,14 +5,14 @@ import region_detection as Agent_reduction
 import colorsys
 import math
 from knot_drawer import ShapelyGUI
-
+import copy
 
 class Knot_GUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Agent Reduction - Path Optimization")
         # Make window full screen
-        self.root.attributes("-fullscreen", True)
+        # self.root.attributes("-fullscreen", True)
 
         self.canvas_path_items = []
         self.animation_running = False
