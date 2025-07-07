@@ -5,11 +5,13 @@ from geometry_utils import check_preserve_crossings_and_update_gaps
 from region_detection import compute_agent_reduction, knot_manager, read_path
 from shapely.ops import nearest_points
 
+
 class KnotPoint:
     def __init__(self, point_id, x, y, is_agent):
         self.id = point_id
         self.pos = (x, y)
         self.is_agent = is_agent
+
 
 class KnotSegment:
     def __init__(self, seg_id, p1_id, p2_id, is_overpass):
@@ -18,6 +20,8 @@ class KnotSegment:
         self.p2 = p2_id
         self.is_overpass = is_overpass
         self.gap_at = []
+
+
 def compute_crossings_from_points(points, segments):
     crossings = {}
     for i, seg1 in enumerate(segments):
@@ -30,10 +34,13 @@ def compute_crossings_from_points(points, segments):
                 if pt.geom_type == "Point":
                     crossings[frozenset([seg1.id, seg2.id])] = pt
     return crossings
+
+
 def check_crossing_structure_equivalence(points, segments, initial_crossings):
     """
     Only checks that the same segment pairs cross — ignores crossing position.
     """
+
     def compute_crossing_pairs(ps):
         pairs = set()
         for i, seg1 in enumerate(segments):
@@ -54,23 +61,25 @@ def check_crossing_structure_equivalence(points, segments, initial_crossings):
     return True, "✅ Segment pairs preserved."
 
 
-
-
 def update_gaps_and_crossings(points, segments):
     def seg_line(seg):
         return LineString([points[seg.p1].pos, points[seg.p2].pos])
-    for seg in segments: seg.gap_at.clear()
+
+    for seg in segments:
+        seg.gap_at.clear()
     for i in range(len(segments)):
         l1 = seg_line(segments[i])
-        for j in range(i+1, len(segments)):
+        for j in range(i + 1, len(segments)):
             l2 = seg_line(segments[j])
             if l1.crosses(l2):
                 pt = l1.intersection(l2)
-                if pt.geom_type=="Point":
+                if pt.geom_type == "Point":
                     if segments[i].is_overpass:
                         segments[j].gap_at.append(pt)
                     else:
                         segments[i].gap_at.append(pt)
+
+
 class ShapelyGUI:
     def __init__(self, parent):
         self.canvas = tk.Canvas(parent, width=600, height=600, bg="white")
@@ -80,10 +89,24 @@ class ShapelyGUI:
         self.next_point_id = self.next_segment_id = 0
         self.dragging_point = None
         self.original_positions = []
-        self.repel_entry = tk.Entry(parent); self.repel_entry.insert(0,"0.5"); self.repel_entry.pack()
-        self.attract_entry = tk.Entry(parent); self.attract_entry.insert(0,"0.05"); self.attract_entry.pack()
-        self.toggle_btn = tk.Button(parent,text="Toggle Waypoints",command=self.redraw); self.toggle_btn.pack()
-        self.next_btn = tk.Button(parent,text="Next Segment",command=self.next_segment); self.next_btn.pack()
+        tk.Label(parent, text="Repel Factor").pack()
+        self.repel_entry = tk.Entry(parent)
+        self.repel_entry.insert(0, "0.8")
+        self.repel_entry.pack()
+
+        tk.Label(parent, text="Attract Factor").pack()
+        self.attract_entry = tk.Entry(parent)
+        self.attract_entry.insert(0, "0.02")
+        self.attract_entry.pack()
+
+        self.toggle_btn = tk.Button(
+            parent, text="Toggle Waypoints", command=self.redraw
+        )
+        self.toggle_btn.pack()
+        self.next_btn = tk.Button(
+            parent, text="Next Segment", command=self.next_segment
+        )
+        self.next_btn.pack()
         self.radius = 50
         self.locked_indices = set()
         self.straighten_step = 0
@@ -95,10 +118,10 @@ class ShapelyGUI:
 
     def on_drag_start(self, e):
         for pt in self.points:
-            x,y=pt.pos
-            if abs(x-e.x)<=6 and abs(y-e.y)<=6:
-                self.dragging_point=pt
-                self.original_positions=[p.pos for p in self.points]
+            x, y = pt.pos
+            if abs(x - e.x) <= 6 and abs(y - e.y) <= 6:
+                self.dragging_point = pt
+                self.original_positions = [p.pos for p in self.points]
                 break
 
     def on_drag_motion(self, e):
@@ -112,7 +135,9 @@ class ShapelyGUI:
         idx = self.dragging_point.id
         old_pos = self.original_positions[idx]
         self.points[idx].pos = (e.x, e.y)
-        ok, msg = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
+        ok, msg = check_crossing_structure_equivalence(
+            self.points, self.segments, self.initial_crossings
+        )
 
         if not ok:
             print(f"❌ Reverting drag of point {idx}: {msg}")
@@ -126,32 +151,45 @@ class ShapelyGUI:
         try:
             rf = float(self.repel_entry.get())
             af = float(self.attract_entry.get())
-        except:
+        except ValueError:
+            print("⚠️ Invalid input in repel/attract fields.")
+            self.canvas.after(50, self.run_physics)
             return
 
-        for i, pt in enumerate(self.points):
-            if i in self.locked_indices or pt == self.dragging_point:
-                continue
-
-            fx = fy = 0
-            for j, other in enumerate(self.points):
-                if i == j or j in self.locked_indices:
+        try:
+            for i, pt in enumerate(self.points):
+                is_locked = i in self.locked_indices
+                if pt == self.dragging_point:
                     continue
-                dx = other.pos[0] - pt.pos[0]
-                dy = other.pos[1] - pt.pos[1]
-                d = (dx * dx + dy * dy) ** 0.5
-                if d == 0:
-                    continue
-                ux, uy = dx / d, dy / d
-                f = -rf * (self.radius - d) if d < self.radius else af * (d - self.radius)
-                fx += f * ux
-                fy += f * uy
 
-            old = pt.pos
-            pt.pos = (pt.pos[0] + fx, pt.pos[1] + fy)
-            ok, _ = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
-            if not ok:
-                pt.pos = old
+                fx = fy = 0
+                for j, other in enumerate(self.points):
+                    if i == j:
+                        continue
+                    dx = other.pos[0] - pt.pos[0]
+                    dy = other.pos[1] - pt.pos[1]
+                    d = (dx * dx + dy * dy) ** 0.5
+                    if d == 0:
+                        continue
+                    ux, uy = dx / d, dy / d
+                    f = (
+                        -rf * (self.radius - d)
+                        if d < self.radius
+                        else af * (d - self.radius)
+                    )
+                    fx += f * ux
+                    fy += f * uy
+
+                if not is_locked:
+                    old = pt.pos
+                    pt.pos = (pt.pos[0] + fx, pt.pos[1] + fy)
+                    ok, _ = check_crossing_structure_equivalence(
+                        self.points, self.segments, self.initial_crossings
+                    )
+                    if not ok:
+                        pt.pos = old
+        except Exception as e:
+            print(f"⚠️ Error in physics loop: {e}")
 
         self.redraw()
         self.canvas.after(50, self.run_physics)
@@ -167,7 +205,9 @@ class ShapelyGUI:
         print(f"   Anchor end:   Point {i2} at {self.points[i2].pos}")
 
         start, end = min(i1, i2), max(i1, i2)
-        intermediates = [i for i in range(start + 1, end) if i not in self.locked_indices]
+        intermediates = [
+            i for i in range(start + 1, end) if i not in self.locked_indices
+        ]
 
         print(f"   Locking intermediate points: {intermediates}")
 
@@ -180,21 +220,27 @@ class ShapelyGUI:
     def redraw(self):
         self.canvas.delete("all")
         curr = set()
-        if self.straighten_step+1 < len(self.ordered_indices):
-            curr = {self.ordered_indices[self.straighten_step], self.ordered_indices[self.straighten_step+1]}
+        if self.straighten_step + 1 < len(self.ordered_indices):
+            curr = {
+                self.ordered_indices[self.straighten_step],
+                self.ordered_indices[self.straighten_step + 1],
+            }
         for seg in self.segments:
-            p1=self.points[seg.p1].pos; p2=self.points[seg.p2].pos
-            self.canvas.create_line(*p1,*p2,fill="black",width=2)
+            p1 = self.points[seg.p1].pos
+            p2 = self.points[seg.p2].pos
+            self.canvas.create_line(*p1, *p2, fill="black", width=2)
         for pt in self.points:
-            x,y=pt.pos
+            x, y = pt.pos
             if pt.id in self.locked_indices:
-                self.canvas.create_oval(x-6,y-6,x+6,y+6,fill="blue")
+                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue")
             elif pt.id in curr:
-                self.canvas.create_oval(x-6,y-6,x+6,y+6,fill="gold")
+                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="gold")
             elif pt.is_agent:
-                self.canvas.create_oval(x-6,y-6,x+6,y+6,fill="white",outline="red",width=2)
+                self.canvas.create_oval(
+                    x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2
+                )
             else:
-                self.canvas.create_oval(x-4,y-4,x+4,y+4,fill="black")
+                self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="black")
 
     def draw_sections(self, section_list, agent_points_set):
         self.clear()
@@ -223,15 +269,21 @@ class ShapelyGUI:
         for sec in section_list:
             p1 = id_map[sec.start]
             p2 = id_map[sec.end]
-            self.segments.append(KnotSegment(self.next_segment_id, p1, p2, sec.over_under == 1))
+            self.segments.append(
+                KnotSegment(self.next_segment_id, p1, p2, sec.over_under == 1)
+            )
             self.next_segment_id += 1
 
         self.ordered_indices = [id_map[p] for p in path_order if p in agent_points_set]
         if len(self.ordered_indices) >= 2:
-            self.locked_indices.update({self.ordered_indices[0], self.ordered_indices[1]})
+            self.locked_indices.update(
+                {self.ordered_indices[0], self.ordered_indices[1]}
+            )
 
         # Compute and store original crossing structure
-        self.initial_crossings = compute_crossings_from_points(self.points, self.segments)
+        self.initial_crossings = compute_crossings_from_points(
+            self.points, self.segments
+        )
 
         self.redraw()
 
@@ -245,13 +297,14 @@ class ShapelyGUI:
         self.locked_indices.clear()
 
 
-if __name__=="__main__":
-    root=tk.Tk(); app=ShapelyGUI(root)
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ShapelyGUI(root)
     try:
         mat, entry, exit = read_path()
-        _,_,_,_,_,secs = compute_agent_reduction(mat,entry,exit)
-        agents={p.pos_2d() for p in knot_manager.agent_registry.values()}
-        app.draw_sections(secs,agents)
+        _, _, _, _, _, secs = compute_agent_reduction(mat, entry, exit)
+        agents = {p.pos_2d() for p in knot_manager.agent_registry.values()}
+        app.draw_sections(secs, agents)
     except Exception as e:
-        print("⚠️",e)
+        print("⚠️", e)
     root.mainloop()
