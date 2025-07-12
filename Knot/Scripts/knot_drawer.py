@@ -84,37 +84,74 @@ class ShapelyGUI:
     def __init__(self, parent):
         self.canvas = tk.Canvas(parent, width=600, height=600, bg="white")
         self.canvas.pack()
+
         self.points, self.segments = [], []
         self.initial_crossings = {}
         self.next_point_id = self.next_segment_id = 0
         self.dragging_point = None
         self.original_positions = []
-        tk.Label(parent, text="Repel Factor").pack()
-        self.repel_entry = tk.Entry(parent)
-        self.repel_entry.insert(0, "0.8")
-        self.repel_entry.pack()
+        self.velocities = []
+        self.manual_locked_indices = set()
 
-        tk.Label(parent, text="Attract Factor").pack()
-        self.attract_entry = tk.Entry(parent)
-        self.attract_entry.insert(0, "0.02")
-        self.attract_entry.pack()
+        tk.Label(parent, text="Spring stiffness (k)").pack()
+        self.k_entry = tk.Entry(parent)
+        self.k_entry.insert(0, "0.06")
+        self.k_entry.pack()
+
+        tk.Label(parent, text="Damping (c)").pack()
+        self.c_entry = tk.Entry(parent)
+        self.c_entry.insert(0, "0.2")
+        self.c_entry.pack()
+
+        tk.Label(parent, text="Mass (m)").pack()
+        self.m_entry = tk.Entry(parent)
+        self.m_entry.insert(0, "1.0")
+        self.m_entry.pack()
+
+        tk.Label(parent, text="Time step (dt)").pack()
+        self.dt_entry = tk.Entry(parent)
+        self.dt_entry.insert(0, "0.2")
+        self.dt_entry.pack()
+
+        self.set_btn = tk.Button(
+            parent, text="Set Physics", command=self.update_physics_constants
+        )
+        self.set_btn.pack()
 
         self.toggle_btn = tk.Button(
             parent, text="Toggle Waypoints", command=self.redraw
         )
         self.toggle_btn.pack()
+
         self.next_btn = tk.Button(
             parent, text="Next Segment", command=self.next_segment
         )
         self.next_btn.pack()
+
         self.radius = 50
         self.locked_indices = set()
         self.straighten_step = 0
         self.ordered_indices = []
+        self.equilibrium_distances = {}
+
+
         self.canvas.bind("<ButtonPress-1>", self.on_drag_start)
         self.canvas.bind("<B1-Motion>", self.on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_drag_end)
+
         self.run_physics()
+
+    def update_physics_constants(self):
+        try:
+            self.k = float(self.k_entry.get())
+            self.c = float(self.c_entry.get())
+            self.m = float(self.m_entry.get())
+            self.dt = float(self.dt_entry.get())
+            print(
+                f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}"
+            )
+        except ValueError:
+            print("⚠️ Invalid input. Please enter valid numbers.")
 
     def on_drag_start(self, e):
         for pt in self.points:
@@ -144,55 +181,71 @@ class ShapelyGUI:
             self.points[idx].pos = old_pos
         else:
             print(f"✅ Drag complete for point {idx}")
+        self.manual_locked_indices.add(idx)
         self.dragging_point = None
         self.redraw()
 
     def run_physics(self):
-        try:
-            rf = float(self.repel_entry.get())
-            af = float(self.attract_entry.get())
-        except ValueError:
-            print("⚠️ Invalid input in repel/attract fields.")
-            self.canvas.after(50, self.run_physics)
-            return
+        k = getattr(self, "k", 0.06)
+        c = getattr(self, "c", 0.2)
+        m = getattr(self, "m", 1.0)
+        dt = getattr(self, "dt", 0.2)
 
         try:
-            for i, pt in enumerate(self.points):
-                is_locked = i in self.locked_indices
-                if pt == self.dragging_point:
+            for i, pti in enumerate(self.points):
+                if pti == self.dragging_point:
                     continue
 
-                fx = fy = 0
-                for j, other in enumerate(self.points):
+                force = np.array([0.0, 0.0])
+                for j, ptj in enumerate(self.points):
                     if i == j:
                         continue
-                    dx = other.pos[0] - pt.pos[0]
-                    dy = other.pos[1] - pt.pos[1]
-                    d = (dx * dx + dy * dy) ** 0.5
-                    if d == 0:
-                        continue
-                    ux, uy = dx / d, dy / d
-                    f = (
-                        -rf * (self.radius - d)
-                        if d < self.radius
-                        else af * (d - self.radius)
-                    )
-                    fx += f * ux
-                    fy += f * uy
 
-                if not is_locked:
-                    old = pt.pos
-                    pt.pos = (pt.pos[0] + fx, pt.pos[1] + fy)
+                    dx = ptj.pos[0] - pti.pos[0]
+                    dy = ptj.pos[1] - pti.pos[1]
+                    disp = np.array([dx, dy])
+                    dist = np.linalg.norm(disp)
+                    if dist == 0:
+                        continue
+                    direction = disp / dist
+
+                    key = tuple(sorted((i, j)))
+                    L0 = self.equilibrium_distances.get(key, self.radius)
+
+                    stretch = dist - L0
+                    f_spring = k * stretch * direction
+
+                    dv = self.velocities[j] - self.velocities[i]
+                    v_rel = np.dot(dv, direction)
+                    f_damp = c * v_rel * direction
+
+                    force += f_spring + f_damp
+
+                if i not in self.locked_indices and i not in self.manual_locked_indices:
+                    acc = force / m
+                    self.velocities[i] += acc * dt
+
+                    # Limit maximum movement per step
+                    max_step = 5.0
+                    disp = self.velocities[i] * dt
+                    if np.linalg.norm(disp) > max_step:
+                        disp = disp / np.linalg.norm(disp) * max_step
+
+                    new_pos = np.array(pti.pos) + disp
+                    old_pos = pti.pos
+                    pti.pos = tuple(new_pos)
                     ok, _ = check_crossing_structure_equivalence(
                         self.points, self.segments, self.initial_crossings
                     )
                     if not ok:
-                        pt.pos = old
+                        pti.pos = old_pos
+                        self.velocities[i] = np.array([0.0, 0.0])
+
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
 
         self.redraw()
-        self.canvas.after(50, self.run_physics)
+        self.canvas.after(20, self.run_physics)
 
     def next_segment(self):
         if self.straighten_step + 1 >= len(self.ordered_indices):
@@ -285,12 +338,26 @@ class ShapelyGUI:
             self.points, self.segments
         )
 
+        # Initialize velocity vectors for all points
+        self.velocities = [np.array([0.0, 0.0]) for _ in self.points]
+
+        # Initialize equilibrium distances for all pairs
+        self.equilibrium_distances = {}
+        for i, pti in enumerate(self.points):
+            for j, ptj in enumerate(self.points):
+                if i < j:
+                    dx = ptj.pos[0] - pti.pos[0]
+                    dy = ptj.pos[1] - pti.pos[1]
+                    d = np.hypot(dx, dy)
+                    self.equilibrium_distances[(i, j)] = d
+
         self.redraw()
 
     def clear(self):
         self.canvas.delete("all")
         self.points = []
         self.segments = []
+        self.velocities = []  # <-- Add this line
         self.next_point_id = self.next_segment_id = 0
         self.straighten_step = 0
         self.ordered_indices = []
