@@ -5,7 +5,7 @@ import region_detection as Agent_reduction
 import colorsys
 import math
 from knot_drawer import ShapelyGUI
-
+import copy
 
 
 class Knot_GUI:
