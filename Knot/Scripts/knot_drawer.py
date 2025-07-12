@@ -1,9 +1,8 @@
 import tkinter as tk
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString
 import numpy as np
 from geometry_utils import check_preserve_crossings_and_update_gaps
 from region_detection import compute_agent_reduction, knot_manager, read_path
-from shapely.ops import nearest_points
 
 
 class KnotPoint:
@@ -37,10 +36,6 @@ def compute_crossings_from_points(points, segments):
 
 
 def check_crossing_structure_equivalence(points, segments, initial_crossings):
-    """
-    Only checks that the same segment pairs cross — ignores crossing position.
-    """
-
     def compute_crossing_pairs(ps):
         pairs = set()
         for i, seg1 in enumerate(segments):
@@ -57,27 +52,7 @@ def check_crossing_structure_equivalence(points, segments, initial_crossings):
 
     if current_pairs != original_pairs:
         return False, "❌ Segment crossing pairs changed."
-
     return True, "✅ Segment pairs preserved."
-
-
-def update_gaps_and_crossings(points, segments):
-    def seg_line(seg):
-        return LineString([points[seg.p1].pos, points[seg.p2].pos])
-
-    for seg in segments:
-        seg.gap_at.clear()
-    for i in range(len(segments)):
-        l1 = seg_line(segments[i])
-        for j in range(i + 1, len(segments)):
-            l2 = seg_line(segments[j])
-            if l1.crosses(l2):
-                pt = l1.intersection(l2)
-                if pt.geom_type == "Point":
-                    if segments[i].is_overpass:
-                        segments[j].gap_at.append(pt)
-                    else:
-                        segments[i].gap_at.append(pt)
 
 
 class ShapelyGUI:
@@ -87,53 +62,25 @@ class ShapelyGUI:
 
         self.points, self.segments = [], []
         self.initial_crossings = {}
-        self.next_point_id = self.next_segment_id = 0
         self.dragging_point = None
         self.original_positions = []
         self.velocities = []
         self.manual_locked_indices = set()
-
-        tk.Label(parent, text="Spring stiffness (k)").pack()
-        self.k_entry = tk.Entry(parent)
-        self.k_entry.insert(0, "0.06")
-        self.k_entry.pack()
-
-        tk.Label(parent, text="Damping (c)").pack()
-        self.c_entry = tk.Entry(parent)
-        self.c_entry.insert(0, "0.2")
-        self.c_entry.pack()
-
-        tk.Label(parent, text="Mass (m)").pack()
-        self.m_entry = tk.Entry(parent)
-        self.m_entry.insert(0, "1.0")
-        self.m_entry.pack()
-
-        tk.Label(parent, text="Time step (dt)").pack()
-        self.dt_entry = tk.Entry(parent)
-        self.dt_entry.insert(0, "0.2")
-        self.dt_entry.pack()
-
-        self.set_btn = tk.Button(
-            parent, text="Set Physics", command=self.update_physics_constants
-        )
-        self.set_btn.pack()
-
-        self.toggle_btn = tk.Button(
-            parent, text="Toggle Waypoints", command=self.redraw
-        )
-        self.toggle_btn.pack()
-
-        self.next_btn = tk.Button(
-            parent, text="Next Segment", command=self.next_segment
-        )
-        self.next_btn.pack()
-
-        self.radius = 50
         self.locked_indices = set()
-        self.straighten_step = 0
-        self.ordered_indices = []
         self.equilibrium_distances = {}
 
+        self.k_entry = tk.Entry(parent); self.k_entry.insert(0, "0.06"); self.k_entry.pack()
+        self.c_entry = tk.Entry(parent); self.c_entry.insert(0, "0.2"); self.c_entry.pack()
+        self.m_entry = tk.Entry(parent); self.m_entry.insert(0, "1.0"); self.m_entry.pack()
+        self.dt_entry = tk.Entry(parent); self.dt_entry.insert(0, "0.2"); self.dt_entry.pack()
+
+        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants); self.set_btn.pack()
+        self.toggle_btn = tk.Button(parent, text="Toggle Waypoints", command=self.redraw); self.toggle_btn.pack()
+        self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment); self.next_btn.pack()
+
+        self.radius = 50
+        self.straighten_step = 0
+        self.ordered_indices = []
 
         self.canvas.bind("<ButtonPress-1>", self.on_drag_start)
         self.canvas.bind("<B1-Motion>", self.on_drag_motion)
@@ -141,20 +88,26 @@ class ShapelyGUI:
 
         self.run_physics()
 
+    def lock_points(self, point_ids):
+        for pid in point_ids:
+            self.manual_locked_indices.discard(pid)
+            self.locked_indices.add(pid)
+        print(f"🔒 Locked points: {point_ids}")
+
     def update_physics_constants(self):
         try:
             self.k = float(self.k_entry.get())
             self.c = float(self.c_entry.get())
             self.m = float(self.m_entry.get())
             self.dt = float(self.dt_entry.get())
-            print(
-                f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}"
-            )
+            print(f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}")
         except ValueError:
-            print("⚠️ Invalid input. Please enter valid numbers.")
+            print("⚠️ Invalid input.")
 
     def on_drag_start(self, e):
         for pt in self.points:
+            if pt.id in self.locked_indices:
+                continue
             x, y = pt.pos
             if abs(x - e.x) <= 6 and abs(y - e.y) <= 6:
                 self.dragging_point = pt
@@ -172,16 +125,13 @@ class ShapelyGUI:
         idx = self.dragging_point.id
         old_pos = self.original_positions[idx]
         self.points[idx].pos = (e.x, e.y)
-        ok, msg = check_crossing_structure_equivalence(
-            self.points, self.segments, self.initial_crossings
-        )
 
+        ok, msg = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
         if not ok:
             print(f"❌ Reverting drag of point {idx}: {msg}")
             self.points[idx].pos = old_pos
         else:
             print(f"✅ Drag complete for point {idx}")
-        self.manual_locked_indices.add(idx)
         self.dragging_point = None
         self.redraw()
 
@@ -193,14 +143,13 @@ class ShapelyGUI:
 
         try:
             for i, pti in enumerate(self.points):
-                if pti == self.dragging_point:
+                if pti == self.dragging_point or i in self.locked_indices or i in self.manual_locked_indices:
                     continue
 
                 force = np.array([0.0, 0.0])
                 for j, ptj in enumerate(self.points):
                     if i == j:
                         continue
-
                     dx = ptj.pos[0] - pti.pos[0]
                     dy = ptj.pos[1] - pti.pos[1]
                     disp = np.array([dx, dy])
@@ -208,39 +157,27 @@ class ShapelyGUI:
                     if dist == 0:
                         continue
                     direction = disp / dist
-
                     key = tuple(sorted((i, j)))
                     L0 = self.equilibrium_distances.get(key, self.radius)
-
                     stretch = dist - L0
                     f_spring = k * stretch * direction
-
                     dv = self.velocities[j] - self.velocities[i]
                     v_rel = np.dot(dv, direction)
                     f_damp = c * v_rel * direction
-
                     force += f_spring + f_damp
 
-                if i not in self.locked_indices and i not in self.manual_locked_indices:
-                    acc = force / m
-                    self.velocities[i] += acc * dt
-
-                    # Limit maximum movement per step
-                    max_step = 5.0
-                    disp = self.velocities[i] * dt
-                    if np.linalg.norm(disp) > max_step:
-                        disp = disp / np.linalg.norm(disp) * max_step
-
-                    new_pos = np.array(pti.pos) + disp
-                    old_pos = pti.pos
-                    pti.pos = tuple(new_pos)
-                    ok, _ = check_crossing_structure_equivalence(
-                        self.points, self.segments, self.initial_crossings
-                    )
-                    if not ok:
-                        pti.pos = old_pos
-                        self.velocities[i] = np.array([0.0, 0.0])
-
+                acc = force / m
+                self.velocities[i] += acc * dt
+                disp = self.velocities[i] * dt
+                if np.linalg.norm(disp) > 5.0:
+                    disp = disp / np.linalg.norm(disp) * 5.0
+                new_pos = np.array(pti.pos) + disp
+                old_pos = pti.pos
+                pti.pos = tuple(new_pos)
+                ok, _ = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
+                if not ok:
+                    pti.pos = old_pos
+                    self.velocities[i] = np.array([0.0, 0.0])
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
 
@@ -251,21 +188,41 @@ class ShapelyGUI:
         if self.straighten_step + 1 >= len(self.ordered_indices):
             return
 
+        # 1. Promote manual-locked to fully locked
+        for pid in self.manual_locked_indices.copy():
+            self.locked_indices.add(pid)
+        self.manual_locked_indices.clear()
+
+        # 2. Get current segment (i1 → i2)
         i1 = self.ordered_indices[self.straighten_step]
         i2 = self.ordered_indices[self.straighten_step + 1]
         print(f"🔒 Locking segment between agent {i1} and {i2}")
-        print(f"   Anchor start: Point {i1} at {self.points[i1].pos}")
-        print(f"   Anchor end:   Point {i2} at {self.points[i2].pos}")
 
-        start, end = min(i1, i2), max(i1, i2)
-        intermediates = [
-            i for i in range(start + 1, end) if i not in self.locked_indices
-        ]
+        path_ids = [p.id for p in self.points]
+        start_idx = path_ids.index(i1)
+        end_idx = path_ids.index(i2)
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
 
-        print(f"   Locking intermediate points: {intermediates}")
+        intermediates = [self.points[i].id for i in range(start_idx + 1, end_idx)]
 
-        # Lock all points in this segment including intermediates
-        self.locked_indices.update(intermediates + [i1, i2])
+        # 3. LOCK current segment
+        to_lock = [i1, i2] + intermediates
+
+        # 4. LOCK the next segment’s END agent (i3), if it exists
+        if self.straighten_step + 2 < len(self.ordered_indices):
+            i3 = self.ordered_indices[self.straighten_step + 2]
+            to_lock.append(i3)
+
+            # Pre-lock the intermediates of next segment (as manual)
+            start_idx2 = path_ids.index(i2)
+            end_idx2 = path_ids.index(i3)
+            if start_idx2 > end_idx2:
+                start_idx2, end_idx2 = end_idx2, start_idx2
+            for i in range(start_idx2 + 1, end_idx2):
+                self.manual_locked_indices.add(self.points[i].id)
+
+        self.lock_points(to_lock)
 
         self.straighten_step += 1
         self.redraw()
@@ -274,94 +231,75 @@ class ShapelyGUI:
         self.canvas.delete("all")
         curr = set()
         if self.straighten_step + 1 < len(self.ordered_indices):
-            curr = {
-                self.ordered_indices[self.straighten_step],
-                self.ordered_indices[self.straighten_step + 1],
-            }
+            curr = {self.ordered_indices[self.straighten_step], self.ordered_indices[self.straighten_step + 1]}
+
         for seg in self.segments:
-            p1 = self.points[seg.p1].pos
-            p2 = self.points[seg.p2].pos
+            p1, p2 = self.points[seg.p1].pos, self.points[seg.p2].pos
             self.canvas.create_line(*p1, *p2, fill="black", width=2)
         for pt in self.points:
             x, y = pt.pos
-            if pt.id in self.locked_indices:
-                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue")
-            elif pt.id in curr:
+            pid = pt.id
+
+            if pid in self.locked_indices:
+                if pt.is_agent:
+                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue4")  # dark blue
+                else:
+                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="cornflowerblue")  # light blue
+            elif pid in self.manual_locked_indices:
+                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="skyblue")
+            elif pid in curr and pid not in self.locked_indices:
                 self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="gold")
             elif pt.is_agent:
-                self.canvas.create_oval(
-                    x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2
-                )
+                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2)
             else:
                 self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="black")
 
     def draw_sections(self, section_list, agent_points_set):
         self.clear()
-        raw = []
-        for sec in section_list:
-            raw.append(sec.start)
-            raw.append(sec.end)
         path_order = [section_list[0].start] + [sec.end for sec in section_list]
-        print("Received Points in path order:")
-        for p in path_order:
-            print(f"   {'Agent' if p in agent_points_set else 'Turn'}@{p}")
-
         xs = [p[1] for p in path_order]
         ys = [p[0] for p in path_order]
-        scale = 40
-        ox = 50 - min(xs) * scale
-        oy = 50 - min(ys) * scale
+        scale, ox, oy = 40, 50 - min(xs) * 40, 50 - min(ys) * 40
         id_map = {}
-
         for p in path_order:
             x, y = p[1] * scale + ox, p[0] * scale + oy
             idx = len(self.points)
             id_map[p] = idx
             self.points.append(KnotPoint(idx, x, y, p in agent_points_set))
-
         for sec in section_list:
-            p1 = id_map[sec.start]
-            p2 = id_map[sec.end]
-            self.segments.append(
-                KnotSegment(self.next_segment_id, p1, p2, sec.over_under == 1)
-            )
-            self.next_segment_id += 1
-
+            p1, p2 = id_map[sec.start], id_map[sec.end]
+            self.segments.append(KnotSegment(len(self.segments), p1, p2, sec.over_under == 1))
         self.ordered_indices = [id_map[p] for p in path_order if p in agent_points_set]
         if len(self.ordered_indices) >= 2:
-            self.locked_indices.update(
-                {self.ordered_indices[0], self.ordered_indices[1]}
-            )
-
-        # Compute and store original crossing structure
-        self.initial_crossings = compute_crossings_from_points(
-            self.points, self.segments
-        )
-
-        # Initialize velocity vectors for all points
+            i1, i2 = self.ordered_indices[0], self.ordered_indices[1]
+            path_ids = [p.id for p in self.points]
+            start_idx = path_ids.index(i1)
+            end_idx = path_ids.index(i2)
+            if start_idx > end_idx:
+                start_idx, end_idx = end_idx, start_idx
+            for i in range(start_idx + 1, end_idx):
+                self.manual_locked_indices.add(self.points[i].id)
+            self.locked_indices.update({i1, i2})
+        self.initial_crossings = compute_crossings_from_points(self.points, self.segments)
         self.velocities = [np.array([0.0, 0.0]) for _ in self.points]
-
-        # Initialize equilibrium distances for all pairs
         self.equilibrium_distances = {}
         for i, pti in enumerate(self.points):
             for j, ptj in enumerate(self.points):
                 if i < j:
-                    dx = ptj.pos[0] - pti.pos[0]
-                    dy = ptj.pos[1] - pti.pos[1]
-                    d = np.hypot(dx, dy)
+                    d = np.hypot(ptj.pos[0] - pti.pos[0], ptj.pos[1] - pti.pos[1])
                     self.equilibrium_distances[(i, j)] = d
-
         self.redraw()
 
     def clear(self):
         self.canvas.delete("all")
         self.points = []
         self.segments = []
-        self.velocities = []  # <-- Add this line
+        self.velocities = []
         self.next_point_id = self.next_segment_id = 0
         self.straighten_step = 0
         self.ordered_indices = []
         self.locked_indices.clear()
+        self.manual_locked_indices.clear()
 
 
 if __name__ == "__main__":
