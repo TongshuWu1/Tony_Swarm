@@ -69,12 +69,49 @@ class ShapelyGUI:
         self.locked_indices = set()
         self.equilibrium_distances = {}
 
-        self.k_entry = tk.Entry(parent); self.k_entry.insert(0, "0.06"); self.k_entry.pack()
-        self.c_entry = tk.Entry(parent); self.c_entry.insert(0, "0.2"); self.c_entry.pack()
-        self.m_entry = tk.Entry(parent); self.m_entry.insert(0, "1.0"); self.m_entry.pack()
-        self.dt_entry = tk.Entry(parent); self.dt_entry.insert(0, "0.2"); self.dt_entry.pack()
+        tk.Label(parent, text="Spring Constant (k)").pack()
+        self.k_entry = tk.Entry(parent);
+        self.k_entry.insert(0, "0.08");
+        self.k_entry.pack()
 
-        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants); self.set_btn.pack()
+        tk.Label(parent, text="Damping Coefficient (c)").pack()
+        self.c_entry = tk.Entry(parent);
+        self.c_entry.insert(0, "0.05");
+        self.c_entry.pack()
+
+        tk.Label(parent, text="Mass (m)").pack()
+        self.m_entry = tk.Entry(parent);
+        self.m_entry.insert(0, "0.5");
+        self.m_entry.pack()
+
+        tk.Label(parent, text="Time Step (dt)").pack()
+        self.dt_entry = tk.Entry(parent);
+        self.dt_entry.insert(0, "0.4");
+        self.dt_entry.pack()
+
+        tk.Label(parent, text="Straighten Force").pack()
+        self.straighten_force_entry = tk.Entry(parent);
+        self.straighten_force_entry.insert(0, "1.0");
+        self.straighten_force_entry.pack()
+
+        tk.Label(parent, text="Repulsion Strength").pack()
+        self.repulsion_entry = tk.Entry(parent)
+        self.repulsion_entry.insert(0, "2.0")
+        self.repulsion_entry.pack()
+
+        tk.Label(parent, text="Min Distance to Segment").pack()
+        self.min_dist_entry = tk.Entry(parent)
+        self.min_dist_entry.insert(0, "25.0")
+        self.min_dist_entry.pack()
+
+        tk.Label(parent, text="Locked Repulsion Multiplier").pack()
+        self.locked_repel_multiplier_entry = tk.Entry(parent)
+        self.locked_repel_multiplier_entry.insert(0, "10.0")
+        self.locked_repel_multiplier_entry.pack()
+
+        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants);
+        self.set_btn.pack()
+
         self.toggle_btn = tk.Button(parent, text="Toggle Waypoints", command=self.redraw); self.toggle_btn.pack()
         self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment); self.next_btn.pack()
 
@@ -86,6 +123,7 @@ class ShapelyGUI:
         self.canvas.bind("<B1-Motion>", self.on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_drag_end)
 
+        self.update_physics_constants()
         self.run_physics()
 
     def lock_points(self, point_ids):
@@ -100,7 +138,16 @@ class ShapelyGUI:
             self.c = float(self.c_entry.get())
             self.m = float(self.m_entry.get())
             self.dt = float(self.dt_entry.get())
-            print(f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}")
+            self.straighten_force = float(self.straighten_force_entry.get())
+            self.repulsion_strength = float(self.repulsion_entry.get())
+            self.min_dist_threshold = float(self.min_dist_entry.get())
+            self.locked_repel_multiplier = float(self.locked_repel_multiplier_entry.get())
+
+            print(
+                f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}, "
+                f"straighten_force={self.straighten_force}, repulsion_strength={self.repulsion_strength}, "
+                f"min_dist_threshold={self.min_dist_threshold}"
+            )
         except ValueError:
             print("⚠️ Invalid input.")
 
@@ -140,13 +187,16 @@ class ShapelyGUI:
         c = getattr(self, "c", 0.2)
         m = getattr(self, "m", 1.0)
         dt = getattr(self, "dt", 0.2)
+        straighten_strength = getattr(self, "straighten_force", 1.0)
+        repulsion_strength = getattr(self, "repulsion_strength", 2.0)
+        min_dist_threshold = getattr(self, "min_dist_threshold", 10.0)
+        locked_repel_multiplier = getattr(self, "locked_repel_multiplier", 5.0)
 
         try:
-            for i, pti in enumerate(self.points):
-                if pti == self.dragging_point or i in self.locked_indices or i in self.manual_locked_indices:
-                    continue
+            force_map = {i: np.array([0.0, 0.0]) for i in range(len(self.points))}
 
-                force = np.array([0.0, 0.0])
+            # === 1. Spring + Damping between all pairs (except locked)
+            for i, pti in enumerate(self.points):
                 for j, ptj in enumerate(self.points):
                     if i == j:
                         continue
@@ -164,20 +214,103 @@ class ShapelyGUI:
                     dv = self.velocities[j] - self.velocities[i]
                     v_rel = np.dot(dv, direction)
                     f_damp = c * v_rel * direction
-                    force += f_spring + f_damp
+                    f_total = f_spring + f_damp
 
-                acc = force / m
-                self.velocities[i] += acc * dt
+                    if i not in self.locked_indices and i not in self.manual_locked_indices:
+                        force_map[i] += f_total
+
+            # === 2. Straighten manual-locked intermediates
+            if self.straighten_step + 1 < len(self.ordered_indices):
+                i1 = self.ordered_indices[self.straighten_step]
+                i2 = self.ordered_indices[self.straighten_step + 1]
+                path_ids = [p.id for p in self.points]
+                start_idx = path_ids.index(i1)
+                end_idx = path_ids.index(i2)
+                if start_idx > end_idx:
+                    start_idx, end_idx = end_idx, start_idx
+
+                for i in range(start_idx + 1, end_idx):
+                    pid = path_ids[i]
+                    if pid not in self.manual_locked_indices:
+                        continue
+
+                    p_prev = np.array(self.points[path_ids[i - 1]].pos, dtype=float)
+                    p_curr = np.array(self.points[pid].pos, dtype=float)
+                    p_next = np.array(self.points[path_ids[i + 1]].pos, dtype=float)
+
+                    v1 = p_prev - p_curr
+                    v2 = p_next - p_curr
+
+                    norm1 = np.linalg.norm(v1)
+                    norm2 = np.linalg.norm(v2)
+                    if norm1 < 1e-5 or norm2 < 1e-5:
+                        continue
+
+                    v1 /= norm1
+                    v2 /= norm2
+                    bisector = v1 + v2
+
+                    if np.linalg.norm(bisector) > 1e-5:
+                        bisector /= np.linalg.norm(bisector)
+                        straighten_force = straighten_strength * bisector
+                        force_map[pid] += straighten_force
+
+            # === 3. Clearance: all points repel from all unrelated segments
+            for i, pt in enumerate(self.points):
+                pt_pos = np.array(pt.pos, dtype=float)
+                for seg in self.segments:
+                    if i == seg.p1 or i == seg.p2:
+                        continue
+                    a = np.array(self.points[seg.p1].pos, dtype=float)
+                    b = np.array(self.points[seg.p2].pos, dtype=float)
+                    ab = b - a
+                    ab_len_sq = np.dot(ab, ab)
+                    if ab_len_sq == 0:
+                        continue
+                    t = np.clip(np.dot(pt_pos - a, ab) / ab_len_sq, 0, 1)
+                    closest = a + t * ab
+                    disp = closest - pt_pos
+                    dist = np.linalg.norm(disp)
+                    if dist < 1e-5:
+                        disp = np.random.randn(2) * 0.01
+                        dist = 1e-5
+                    if dist < min_dist_threshold:
+                        repel_dir = disp / dist
+                        multiplier = locked_repel_multiplier if i in self.locked_indices else 1.0
+                        delta = (min_dist_threshold - dist) / min_dist_threshold
+                        repel_mag = repulsion_strength * multiplier * (delta ** 2)
+                        repel_force = repel_dir * repel_mag
+                        force_map[i] -= repel_force
+                        force_map[seg.p1] += 0.5 * repel_force
+                        force_map[seg.p2] += 0.5 * repel_force
+
+            # === 4. Update motion
+            for i, pti in enumerate(self.points):
+                if pti == self.dragging_point:
+                    continue
+
+                acc = force_map[i] / m
+
+                if i in self.locked_indices:
+                    continue
+                elif i in self.manual_locked_indices:
+                    self.velocities[i] = acc * dt
+                else:
+                    self.velocities[i] += acc * dt
+
                 disp = self.velocities[i] * dt
                 if np.linalg.norm(disp) > 5.0:
                     disp = disp / np.linalg.norm(disp) * 5.0
+
                 new_pos = np.array(pti.pos) + disp
                 old_pos = pti.pos
                 pti.pos = tuple(new_pos)
+
                 ok, _ = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
                 if not ok:
                     pti.pos = old_pos
                     self.velocities[i] = np.array([0.0, 0.0])
+
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
 
@@ -232,19 +365,76 @@ class ShapelyGUI:
         curr = set()
         if self.straighten_step + 1 < len(self.ordered_indices):
             curr = {self.ordered_indices[self.straighten_step], self.ordered_indices[self.straighten_step + 1]}
+        elif self.straighten_step < len(self.ordered_indices):
+            curr = {self.ordered_indices[self.straighten_step]}
 
+        # === Draw segments with over/under gap handling ===
+        drawn_pairs = set()
+        already_drawn = set()
+
+        # First draw all underpasses with gaps
+        for i, seg1 in enumerate(self.segments):
+            for j in range(i + 1, len(self.segments)):
+                seg2 = self.segments[j]
+                key = tuple(sorted((seg1.id, seg2.id)))
+                if key in drawn_pairs:
+                    continue
+                drawn_pairs.add(key)
+
+                p1a = np.array(self.points[seg1.p1].pos)
+                p1b = np.array(self.points[seg1.p2].pos)
+                p2a = np.array(self.points[seg2.p1].pos)
+                p2b = np.array(self.points[seg2.p2].pos)
+
+                line1 = LineString([p1a, p1b])
+                line2 = LineString([p2a, p2b])
+
+                if not line1.crosses(line2):
+                    continue
+
+                pt = line1.intersection(line2)
+                if pt.geom_type != "Point":
+                    continue
+
+                pt_coords = np.array(pt.coords[0])
+                gap_size = 6
+
+                def draw_gapped_segment(a, b):
+                    vec = b - a
+                    length = np.linalg.norm(vec)
+                    if length < 1e-3:
+                        return
+                    dir = vec / length
+                    offset = dir * gap_size
+                    self.canvas.create_line(*a, *(pt_coords - offset), fill="black", width=2)
+                    self.canvas.create_line(*(pt_coords + offset), *b, fill="black", width=2)
+
+                # Draw gap on underpass
+                if seg1.is_overpass:
+                    draw_gapped_segment(p2a, p2b)
+                    already_drawn.add(seg2.id)
+                else:
+                    draw_gapped_segment(p1a, p1b)
+                    already_drawn.add(seg1.id)
+
+        # Now draw all segments fully (including overpasses)
         for seg in self.segments:
-            p1, p2 = self.points[seg.p1].pos, self.points[seg.p2].pos
+            if seg.id in already_drawn:
+                continue
+            p1 = self.points[seg.p1].pos
+            p2 = self.points[seg.p2].pos
             self.canvas.create_line(*p1, *p2, fill="black", width=2)
+
+        # === Draw points ===
         for pt in self.points:
             x, y = pt.pos
             pid = pt.id
 
             if pid in self.locked_indices:
                 if pt.is_agent:
-                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue4")  # dark blue
+                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue4")
                 else:
-                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="cornflowerblue")  # light blue
+                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="cornflowerblue")
             elif pid in self.manual_locked_indices:
                 self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="skyblue")
             elif pid in curr and pid not in self.locked_indices:
