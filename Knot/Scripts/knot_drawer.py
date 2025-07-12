@@ -67,53 +67,50 @@ class ShapelyGUI:
         self.velocities = []
         self.manual_locked_indices = set()
         self.locked_indices = set()
+        self.frozen_intermediates = set()
         self.equilibrium_distances = {}
 
-        tk.Label(parent, text="Spring Constant (k)").pack()
-        self.k_entry = tk.Entry(parent);
-        self.k_entry.insert(0, "0.08");
-        self.k_entry.pack()
+        self.convergence_skip_frames =5
+        self.frames_since_segment_start = 10
 
-        tk.Label(parent, text="Damping Coefficient (c)").pack()
-        self.c_entry = tk.Entry(parent);
-        self.c_entry.insert(0, "0.05");
-        self.c_entry.pack()
+        self.converged_counter = 0
+        self.convergence_threshold = 0.4
+        self.converged_steps_required = 10
 
-        tk.Label(parent, text="Mass (m)").pack()
-        self.m_entry = tk.Entry(parent);
-        self.m_entry.insert(0, "0.5");
-        self.m_entry.pack()
+        self.avg_speed_buffer = []
+        self.avg_speed_window_size = 7  # or 15
 
-        tk.Label(parent, text="Time Step (dt)").pack()
-        self.dt_entry = tk.Entry(parent);
-        self.dt_entry.insert(0, "0.4");
-        self.dt_entry.pack()
+        self.prev_force_dirs = [np.zeros(2, dtype=float) for _ in range(len(self.points))]
+        self.vibrate_count = [0 for _ in range(len(self.points))]
 
-        tk.Label(parent, text="Straighten Force").pack()
-        self.straighten_force_entry = tk.Entry(parent);
-        self.straighten_force_entry.insert(0, "1.0");
-        self.straighten_force_entry.pack()
+        param_frame = tk.Frame(parent)
+        param_frame.pack()
 
-        tk.Label(parent, text="Repulsion Strength").pack()
-        self.repulsion_entry = tk.Entry(parent)
-        self.repulsion_entry.insert(0, "2.0")
-        self.repulsion_entry.pack()
+        def add_param(row, label, entry_attr, default):
+            tk.Label(param_frame, text=label).grid(row=row, column=0, sticky='w')
+            entry = tk.Entry(param_frame, width=8)
+            entry.insert(0, str(default))
+            entry.grid(row=row, column=1)
+            setattr(self, entry_attr, entry)
 
-        tk.Label(parent, text="Min Distance to Segment").pack()
-        self.min_dist_entry = tk.Entry(parent)
-        self.min_dist_entry.insert(0, "25.0")
-        self.min_dist_entry.pack()
+        add_param(0, "Spring (k)", "k_entry", 0.07)
+        add_param(1, "Damping (c)", "c_entry", 0.08)
+        add_param(2, "Mass (m)", "m_entry", 0.6)
+        add_param(3, "Time Step (dt)", "dt_entry", 0.4)
+        add_param(4, "Straighten", "straighten_force_entry", 1.3)
+        add_param(5, "Repel Strength", "repulsion_entry", 4.0)
+        add_param(6, "Min Dist", "min_dist_entry", 30.0)
+        add_param(7, "Locked Mult", "locked_repel_multiplier_entry", 10.0)
+        add_param(8, "Conv Thresh", "conv_thresh_entry", 0.12)
+        add_param(9, "Conv Frames", "conv_steps_entry", 12)
 
-        tk.Label(parent, text="Locked Repulsion Multiplier").pack()
-        self.locked_repel_multiplier_entry = tk.Entry(parent)
-        self.locked_repel_multiplier_entry.insert(0, "10.0")
-        self.locked_repel_multiplier_entry.pack()
-
-        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants);
+        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants)
         self.set_btn.pack()
 
-        self.toggle_btn = tk.Button(parent, text="Toggle Waypoints", command=self.redraw); self.toggle_btn.pack()
-        self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment); self.next_btn.pack()
+        self.toggle_btn = tk.Button(parent, text="Toggle Waypoints", command=self.redraw)
+        self.toggle_btn.pack()
+        self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment)
+        self.next_btn.pack()
 
         self.radius = 50
         self.straighten_step = 0
@@ -142,11 +139,15 @@ class ShapelyGUI:
             self.repulsion_strength = float(self.repulsion_entry.get())
             self.min_dist_threshold = float(self.min_dist_entry.get())
             self.locked_repel_multiplier = float(self.locked_repel_multiplier_entry.get())
+            self.convergence_threshold = float(self.conv_thresh_entry.get())
+            self.converged_steps_required = int(self.conv_steps_entry.get())
 
             print(
                 f"✅ Physics updated: k={self.k}, c={self.c}, m={self.m}, dt={self.dt}, "
                 f"straighten_force={self.straighten_force}, repulsion_strength={self.repulsion_strength}, "
-                f"min_dist_threshold={self.min_dist_threshold}"
+                f"min_dist_threshold={self.min_dist_threshold}, "
+                f"convergence_threshold={self.convergence_threshold}, "
+                f"required stable frames={self.converged_steps_required}"
             )
         except ValueError:
             print("⚠️ Invalid input.")
@@ -183,26 +184,46 @@ class ShapelyGUI:
         self.redraw()
 
     def run_physics(self):
+        def normalize(vec):
+            vec = np.array(vec, dtype=float)
+            norm = np.linalg.norm(vec)
+            if norm < 1e-8:
+                return vec
+            return vec / norm
+
         k = getattr(self, "k", 0.06)
-        c = getattr(self, "c", 0.2)
+        c = getattr(self, "c", 0.1)
         m = getattr(self, "m", 1.0)
-        dt = getattr(self, "dt", 0.2)
-        straighten_strength = getattr(self, "straighten_force", 1.0)
+        dt = getattr(self, "dt", 0.3)
+        straighten_strength = getattr(self, "straighten_force", 1.4)
         repulsion_strength = getattr(self, "repulsion_strength", 2.0)
         min_dist_threshold = getattr(self, "min_dist_threshold", 10.0)
         locked_repel_multiplier = getattr(self, "locked_repel_multiplier", 5.0)
+        max_velocity = 0.6
 
         try:
-            force_map = {i: np.array([0.0, 0.0]) for i in range(len(self.points))}
+            self.frames_since_segment_start += 1
 
-            # === 1. Spring + Damping between all pairs (except locked)
+            active_intermediates = set()
+            if self.straighten_step + 1 < len(self.ordered_indices):
+                i1 = self.ordered_indices[self.straighten_step]
+                i2 = self.ordered_indices[self.straighten_step + 1]
+                path_ids = [p.id for p in self.points]
+                start_idx = path_ids.index(i1)
+                end_idx = path_ids.index(i2)
+                if start_idx > end_idx:
+                    start_idx, end_idx = end_idx, start_idx
+                active_intermediates = set(path_ids[start_idx + 1:end_idx])
+
+            force_map = {i: np.zeros(2, dtype=float) for i in range(len(self.points))}
+
             for i, pti in enumerate(self.points):
                 for j, ptj in enumerate(self.points):
                     if i == j:
                         continue
                     dx = ptj.pos[0] - pti.pos[0]
                     dy = ptj.pos[1] - pti.pos[1]
-                    disp = np.array([dx, dy])
+                    disp = np.array([dx, dy], dtype=float)
                     dist = np.linalg.norm(disp)
                     if dist == 0:
                         continue
@@ -215,47 +236,22 @@ class ShapelyGUI:
                     v_rel = np.dot(dv, direction)
                     f_damp = c * v_rel * direction
                     f_total = f_spring + f_damp
-
                     if i not in self.locked_indices and i not in self.manual_locked_indices:
                         force_map[i] += f_total
 
-            # === 2. Straighten manual-locked intermediates
             if self.straighten_step + 1 < len(self.ordered_indices):
-                i1 = self.ordered_indices[self.straighten_step]
-                i2 = self.ordered_indices[self.straighten_step + 1]
-                path_ids = [p.id for p in self.points]
-                start_idx = path_ids.index(i1)
-                end_idx = path_ids.index(i2)
-                if start_idx > end_idx:
-                    start_idx, end_idx = end_idx, start_idx
-
                 for i in range(start_idx + 1, end_idx):
                     pid = path_ids[i]
                     if pid not in self.manual_locked_indices:
                         continue
-
                     p_prev = np.array(self.points[path_ids[i - 1]].pos, dtype=float)
                     p_curr = np.array(self.points[pid].pos, dtype=float)
                     p_next = np.array(self.points[path_ids[i + 1]].pos, dtype=float)
+                    v1 = normalize(p_prev - p_curr)
+                    v2 = normalize(p_next - p_curr)
+                    bisector = normalize(v1 + v2)
+                    force_map[pid] += straighten_strength * bisector
 
-                    v1 = p_prev - p_curr
-                    v2 = p_next - p_curr
-
-                    norm1 = np.linalg.norm(v1)
-                    norm2 = np.linalg.norm(v2)
-                    if norm1 < 1e-5 or norm2 < 1e-5:
-                        continue
-
-                    v1 /= norm1
-                    v2 /= norm2
-                    bisector = v1 + v2
-
-                    if np.linalg.norm(bisector) > 1e-5:
-                        bisector /= np.linalg.norm(bisector)
-                        straighten_force = straighten_strength * bisector
-                        force_map[pid] += straighten_force
-
-            # === 3. Clearance: all points repel from all unrelated segments
             for i, pt in enumerate(self.points):
                 pt_pos = np.array(pt.pos, dtype=float)
                 for seg in self.segments:
@@ -275,41 +271,85 @@ class ShapelyGUI:
                         disp = np.random.randn(2) * 0.01
                         dist = 1e-5
                     if dist < min_dist_threshold:
-                        repel_dir = disp / dist
-                        multiplier = locked_repel_multiplier if i in self.locked_indices else 1.0
-                        delta = (min_dist_threshold - dist) / min_dist_threshold
-                        repel_mag = repulsion_strength * multiplier * (delta ** 2)
+                        repel_dir = normalize(disp)
+                        delta = min((min_dist_threshold - dist) / min_dist_threshold, 0.5)
+                        repel_mag = repulsion_strength * (
+                            locked_repel_multiplier if i in self.locked_indices else 1.0) * (delta ** 2)
                         repel_force = repel_dir * repel_mag
                         force_map[i] -= repel_force
                         force_map[seg.p1] += 0.5 * repel_force
                         force_map[seg.p2] += 0.5 * repel_force
 
-            # === 4. Update motion
+            for i in active_intermediates:
+                f_now = force_map[i]
+                if np.linalg.norm(f_now) > 5.0:
+                    print(f"🧊 Force-freezing point {i} due to jitter spike")
+                    self.velocities[i] = np.zeros(2)
+                    self.frozen_intermediates.add(i)
+                    continue
+                self.prev_force_dirs[i] = f_now
+
             for i, pti in enumerate(self.points):
-                if pti == self.dragging_point:
+                if pti == self.dragging_point or i in self.locked_indices or i in self.frozen_intermediates:
                     continue
-
                 acc = force_map[i] / m
-
-                if i in self.locked_indices:
-                    continue
-                elif i in self.manual_locked_indices:
-                    self.velocities[i] = acc * dt
-                else:
-                    self.velocities[i] += acc * dt
-
+                raw_velocity = acc * dt
+                self.velocities[i] = 0.8 * self.velocities[i] + 0.2 * raw_velocity
+                speed = np.linalg.norm(self.velocities[i])
+                if speed > max_velocity:
+                    self.velocities[i] = self.velocities[i] / speed * max_velocity
                 disp = self.velocities[i] * dt
-                if np.linalg.norm(disp) > 5.0:
-                    disp = disp / np.linalg.norm(disp) * 5.0
-
-                new_pos = np.array(pti.pos) + disp
+                new_pos = np.array(pti.pos, dtype=float) + disp
                 old_pos = pti.pos
                 pti.pos = tuple(new_pos)
-
                 ok, _ = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
                 if not ok:
                     pti.pos = old_pos
-                    self.velocities[i] = np.array([0.0, 0.0])
+                    self.velocities[i] = np.zeros(2)
+
+            if self.frames_since_segment_start <= self.convergence_skip_frames:
+                pass
+                # print(
+                #     f"⏳ Skipping convergence check ({self.frames_since_segment_start}/{self.convergence_skip_frames})")
+            else:
+                intermediates = [i for i in self.manual_locked_indices if i not in self.locked_indices]
+                if not intermediates:
+                    print("✅ No intermediates remaining. Advancing to next segment.")
+                    self.next_segment()
+                    self.converged_counter = 0
+                    self.frames_since_segment_start = 0
+                elif all(i in self.frozen_intermediates for i in intermediates):
+                    print("✅ All intermediates frozen. Advancing to next segment.")
+                    self.next_segment()
+                    self.converged_counter = 0
+                    self.frames_since_segment_start = 0
+                else:
+                    moving_speeds = [np.linalg.norm(self.velocities[i]) for i in intermediates if
+                                     i not in self.frozen_intermediates]
+                    if not hasattr(self, "avg_speed_buffer"):
+                        self.avg_speed_buffer = []
+                        self.avg_speed_window_size = 10
+                    instant_speed = np.mean(moving_speeds) if moving_speeds else 0.0
+                    if instant_speed > 1.0:
+                        print(f"⚠️ Detected speed spike: {instant_speed:.4f} — purging buffer")
+                        self.avg_speed_buffer.clear()
+                        self.converged_counter = 0
+                    else:
+                        self.avg_speed_buffer.append(instant_speed)
+                        if len(self.avg_speed_buffer) > self.avg_speed_window_size:
+                            self.avg_speed_buffer.pop(0)
+                        avg_speed = np.mean(self.avg_speed_buffer)
+                        print(
+                            f"🔍 Instant speed = {instant_speed:.5f} | Smoothed avg = {avg_speed:.5f} | Stable frames: {self.converged_counter}/{self.converged_steps_required}")
+                        if avg_speed < self.convergence_threshold:
+                            self.converged_counter += 1
+                        else:
+                            self.converged_counter = 0
+                        if self.converged_counter >= self.converged_steps_required:
+                            print("✅ Speed convergence reached. Advancing to next segment.")
+                            self.next_segment()
+                            self.converged_counter = 0
+                            self.frames_since_segment_start = 0
 
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
@@ -359,6 +399,7 @@ class ShapelyGUI:
 
         self.straighten_step += 1
         self.redraw()
+        self.frames_since_segment_start = 0
 
     def redraw(self):
         self.canvas.delete("all")
@@ -449,17 +490,37 @@ class ShapelyGUI:
         path_order = [section_list[0].start] + [sec.end for sec in section_list]
         xs = [p[1] for p in path_order]
         ys = [p[0] for p in path_order]
-        scale, ox, oy = 40, 50 - min(xs) * 40, 50 - min(ys) * 40
+
+        scale = 40
+        canvas_width = int(self.canvas['width'])
+        canvas_height = int(self.canvas['height'])
+
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        knot_width = (max_x - min_x + 1) * scale
+        knot_height = (max_y - min_y + 1) * scale
+
+        ox = (canvas_width - knot_width) // 2 - min_x * scale
+        oy = (canvas_height - knot_height) // 2 - min_y * scale
+
         id_map = {}
+
+        # Create KnotPoints
         for p in path_order:
             x, y = p[1] * scale + ox, p[0] * scale + oy
             idx = len(self.points)
             id_map[p] = idx
             self.points.append(KnotPoint(idx, x, y, p in agent_points_set))
+
+        # Create KnotSegments
         for sec in section_list:
             p1, p2 = id_map[sec.start], id_map[sec.end]
             self.segments.append(KnotSegment(len(self.segments), p1, p2, sec.over_under == 1))
+
         self.ordered_indices = [id_map[p] for p in path_order if p in agent_points_set]
+
+        # Lock first segment's agents and intermediates
         if len(self.ordered_indices) >= 2:
             i1, i2 = self.ordered_indices[0], self.ordered_indices[1]
             path_ids = [p.id for p in self.points]
@@ -470,14 +531,31 @@ class ShapelyGUI:
             for i in range(start_idx + 1, end_idx):
                 self.manual_locked_indices.add(self.points[i].id)
             self.locked_indices.update({i1, i2})
+
+        # Compute segment crossings
         self.initial_crossings = compute_crossings_from_points(self.points, self.segments)
+
+        # Insert gap info for underpasses
+        for (seg1_id, seg2_id), pt in self.initial_crossings.items():
+            seg1 = next(s for s in self.segments if s.id == seg1_id)
+            seg2 = next(s for s in self.segments if s.id == seg2_id)
+            under_seg = seg1 if not seg1.is_overpass else seg2
+            if pt.geom_type == "Point":
+                under_seg.gap_at.append(pt)
+
+        # Initialize simulation state
         self.velocities = [np.array([0.0, 0.0]) for _ in self.points]
+        self.prev_force_dirs = [np.zeros(2, dtype=float) for _ in self.points]
+        self.vibrate_count = [0 for _ in self.points]
+
+        # Store equilibrium distances
         self.equilibrium_distances = {}
         for i, pti in enumerate(self.points):
             for j, ptj in enumerate(self.points):
                 if i < j:
                     d = np.hypot(ptj.pos[0] - pti.pos[0], ptj.pos[1] - pti.pos[1])
                     self.equilibrium_distances[(i, j)] = d
+
         self.redraw()
 
     def clear(self):
