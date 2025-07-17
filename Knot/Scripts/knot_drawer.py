@@ -314,7 +314,7 @@ class ShapelyGUI:
             else:
                 intermediates = [i for i in self.manual_locked_indices if i not in self.locked_indices]
                 if not intermediates:
-                    print("✅ No intermediates remaining. Advancing to next segment.")
+                    # print("✅ No intermediates remaining. Advancing to next segment.")
                     self.next_segment()
                     self.converged_counter = 0
                     self.frames_since_segment_start = 0
