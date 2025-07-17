@@ -209,54 +209,71 @@ def find_enclosed_area(matrix, looppath):
     return enclosed, bool(cells), cells
 
 
-def handle_loop(loop, processed_counts, entryPoint, exitPoint, path_list, loop_id, current_agents, walked_turning_points):
-    enclosed, _, cells = find_enclosed_area(knot_manager.matrix, loop)
-    max_loops = len(cells)  # maximum loops (agents) allowed for this region
+def handle_loop(loop, processed_cells_map, entryPoint, exitPoint, path_list, loop_id, current_agents, walked_turning_points):
+    """
+    loop: list of boundary points
+    processed_cells_map: dict mapping frozenset(enclosed_region) -> set of painted crossing-cells
+    """
+    # 1) Identify enclosed crossing-cells
+    enclosed, has_cells, cells = find_enclosed_area(knot_manager.matrix, loop)
     key = frozenset(enclosed)
-    done = processed_counts.get(key, 0)
+    max_cells = len(cells)
 
-    # detect turning points on loop
+    # Initialize painted set for this region
+    painted = processed_cells_map.setdefault(key, set())
+
+    # Debug region status
+    print(f"🚩 handle_loop loop#{loop_id}: region={key}")
+    print(f"    crossing-cells in region: {cells}")
+    print(f"    already painted: {painted} ({len(painted)}/{max_cells})")
+
+    # 2) Determine new crossing-cells
+    new_cells = cells - painted
+    if not new_cells:
+        print(f"⏩ No new crossing-cells in region {key}, skipping.")
+        return set()
+
+    # 3) Turning-point deduplication
     def turn(prev, curr, nxt):
-        return (prev[0] == curr[0] and nxt[0] != curr[0]) or \
-               (prev[1] == curr[1] and nxt[1] != curr[1])
+        return (prev[0]==curr[0] and nxt[0]!=curr[0]) or (prev[1]==curr[1] and nxt[1]!=curr[1])
 
-    tps = set()
-    for i in range(1, len(loop) - 1):
-        if turn(loop[i-1], loop[i], loop[i+1]):
-            tps.add(loop[i])
-
+    tps = {loop[i] for i in range(1, len(loop)-1)
+           if turn(loop[i-1], loop[i], loop[i+1])}
     reused = tps & walked_turning_points
     walked_turning_points.update(tps)
     if reused:
+        print(f"⚠️ Skipping loop#{loop_id}, turning-points {reused} reused.")
         return set()
 
-    # pick candidate agent points
+    # 4) Generate boundary candidates
     def best(idx, path):
         n = len(path)
         for off in range(n):
             p0, p1, p2 = path[(idx+off-1)%n], path[(idx+off)%n], path[(idx+off+1)%n]
             v = knot_manager.matrix[p1[0]][p1[1]]
-            if turn(p0, p1, p2) and v in {1, -1}:
+            if turn(p0,p1,p2) and v in {1,-1}:
                 return p1
         for off in range(n):
             p = path[(idx+off)%n]
-            if knot_manager.matrix[p[0]][p[1]] in {1, -1}:
+            if knot_manager.matrix[p[0]][p[1]] in {1,-1}:
                 return p
+        return None
 
     def next_turn(end, path):
-        n = len(path); si = path.index(end)
+        n, si = len(path), path.index(end)
         for i in range(si+1, n-1):
             p0, p1, p2 = path[i-1], path[i], path[i+1]
             if p1 in loop: continue
-            if turn(p0, p1, p2) and knot_manager.matrix[p1[0]][p1[1]] in {1, -1}:
+            if turn(p0,p1,p2) and knot_manager.matrix[p1[0]][p1[1]] in {1,-1}:
                 return p1
+        return None
 
     def extreme(loop):
-        sp = [p for p in loop if knot_manager.matrix[p[0]][p[1]] in {1, -1}]
+        sp = [p for p in loop if knot_manager.matrix[p[0]][p[1]] in {1,-1}]
         if len(sp) < 4:
             return []
         res = []
-        for fn in (lambda p: p[1], lambda p: -p[1], lambda p: p[0], lambda p: -p[0]):
+        for fn in (lambda p:p[1], lambda p:-p[1], lambda p:p[0], lambda p:-p[0]):
             for p in sorted(sp, key=fn):
                 if p not in res:
                     res.append(p)
@@ -271,123 +288,190 @@ def handle_loop(loop, processed_counts, entryPoint, exitPoint, path_list, loop_i
             if c and c not in pts:
                 pts.append(c)
 
-    new = [p for p in pts
-           if p not in current_agents and p != entryPoint and p != exitPoint]
-    if not new:
-        return set()
+    # 5) Match new_cells to boundary candidates
+    new_agents = [p for p in pts if p in new_cells and p not in current_agents]
 
-    # assign agents
+    # 6) Fallback: for each cell in new_cells, pick nearest boundary candidate
+    if not new_agents:
+        for cell in new_cells:
+            nearest = min(pts, key=lambda p: abs(p[0]-cell[0]) + abs(p[1]-cell[1]))
+            if nearest not in new_agents:
+                new_agents.append(nearest)
+        print(f"🔄 Fallback boundary mapping: new_cells {new_cells} -> boundary points {new_agents}")
+
+    # 7) Assign and mark painted
     knot_manager.loop_registry[loop_id] = {"path": loop, "agents": []}
-    for p in new:
+    for p in new_agents:
         aid = knot_manager.register_agent(knot_manager.graph.add_point(*p))
         knot_manager.loop_registry[loop_id]["agents"].append((aid, p))
+        # mark any new_cells that map to this boundary point as painted
+        for cell in list(new_cells):
+            if abs(p[0]-cell[0]) + abs(p[1]-cell[1]) <= 1:
+                painted.add(cell)
 
-    # increment count
-    processed_counts[key] = done + 1
-
-    return set(new)
+    print(f"✅ loop#{loop_id}: assigned agents {new_agents}, painted now {painted} ({len(painted)}/{max_cells})")
+    return set(new_agents)
 
 
 
 def trace_knot_path(matrixA, entryPoint, exitPoint):
+    """
+    Walk the knot from entry to exit, detecting loops, and print detailed debug info.
+    Prints:
+      - segment points being traced each turn,
+      - each step in the evolving search path,
+      - full search path at loop detection,
+      - loop boundary points,
+      - old_seg and new_seg for between-crossings loops,
+      - enclosed cells info.
+    Returns path_list, agent coords, loop registry, and sections.
+    """
     knot_manager.reset()
     knot_manager.set_matrix(matrixA, entryPoint, exitPoint)
 
-    walked_path_set, walked_turning_points = set(), set()
     processed_counts = {}
     seen_loops = set()
-    loop_id, section_id = 1, 1
-    sections, all_agents = [], set()
+    crossing_events = []  # (point, old_idx, new_idx)
+    loop_id = 1
+    section_id = 1
+    sections = []
+    all_agents = set()
 
+    # Seed agent
     a0 = knot_manager.graph.add_point(*entryPoint, is_agent=True)
     knot_manager.register_agent(a0)
 
     direction = find_starting_direction(matrixA, *entryPoint)
     if not direction:
         return [], set(), {}, []
+
     prev_turn, prev_dir = entryPoint, direction
     section_buf = []
-
     current = entryPoint
-    path_list, path_set = [current], {current}
+    path_list = [current]
+    path_set = {current}
+
     while current != exitPoint:
         nxt = search_next_turn(matrixA, *current, direction)
         if not nxt:
             break
+
+        # Compute the segment of points between current and nxt
         r1, c1 = current; r2, c2 = nxt
-        if direction == "row":
+        if direction == 'row':
             step = 1 if c2 > c1 else -1
-            pts = [ (r1, c) for c in range(c1+step, c2+step, step) ]
+            pts = [(r1, c) for c in range(c1+step, c2+step, step)]
         else:
             step = 1 if r2 > r1 else -1
-            pts = [ (r, c1) for r in range(r1+step, r2+step, step) ]
+            pts = [(r, c1) for r in range(r1+step, r2+step, step)]
+
+        # Debug: print segment being traced
+        print(f"Tracing segment from {current} to {nxt}: {pts}")
+
         for p in pts:
             section_buf.append(p)
-            walked_path_set.add(p)
-            loop = detect_loop(path_list, path_set, p)
-            if loop and tuple(loop) not in seen_loops:
-                seen_loops.add(tuple(loop))
-                nas = handle_loop(loop, processed_counts, entryPoint, exitPoint, path_list, loop_id, all_agents, walked_turning_points)
-                if nas:
-                    all_agents.update(nas)
-                    loop_id += 1
-            path_list.append(p); path_set.add(p)
+
+            if p in path_set:
+                # Debug: full search path at loop detection
+                print("\n--- Loop detection triggered ---")
+                print(f"  Current point: {p}")
+                print(f"  Full search path ({len(path_list)} pts): {path_list}")
+
+                old_idx = path_list.index(p)
+                new_idx = len(path_list)
+                crossing_events.append((p, old_idx, new_idx))
+
+                # Same-point loop
+                loop1 = path_list[old_idx:]
+                if tuple(loop1) not in seen_loops:
+                    print(f"\n🔁 Loop {loop_id}: same-point created by {p}")
+                    print(f"  Loop boundary points: {loop1}")
+                    enclosed1, has1, cells1 = find_enclosed_area(matrixA, loop1)
+                    if has1:
+                        print("  Enclosed cells:")
+                        for cell in sorted(cells1):
+                            val = matrixA[cell[0]][cell[1]]
+                            status = "visited" if cell in path_set else "new"
+                            print(f"    {cell}: value={val}, {status}")
+                    else:
+                        print("  No enclosed 1/-1 cells.")
+                    seen_loops.add(tuple(loop1))
+                    nas = handle_loop(loop1, processed_counts,
+                                      entryPoint, exitPoint,
+                                      path_list, loop_id,
+                                      all_agents, set())
+                    if nas:
+                        all_agents.update(nas)
+                        loop_id += 1
+
+                # Between-crossings loop
+                if len(crossing_events) >= 2:
+                    prev_p, prev_old, prev_new = crossing_events[-2]
+                    cur_p, cur_old, cur_new = crossing_events[-1]
+                    old_seg = path_list[prev_old:cur_old+1]
+                    new_seg = path_list[prev_new:cur_new] + [p]
+                    print(f"  Debug old_seg: {old_seg}")
+                    print(f"  Debug new_seg: {new_seg}")
+                    loop2 = old_seg + new_seg[::-1]
+                    print(f"\n🔁 Loop {loop_id}: between-crossings created by {prev_p} & {cur_p}")
+                    print(f"  Loop boundary points: {loop2}")
+                    enclosed2, has2, cells2 = find_enclosed_area(matrixA, loop2)
+                    if has2:
+                        print("  Enclosed cells:")
+                        for cell in sorted(cells2):
+                            val = matrixA[cell[0]][cell[1]]
+                            status = "visited" if cell in path_set else "new"
+                            print(f"    {cell}: value={val}, {status}")
+                    else:
+                        print("  No enclosed 1/-1 cells.")
+                    if has2 and not (cells2 & path_set) and tuple(loop2) not in seen_loops:
+                        seen_loops.add(tuple(loop2))
+                        nas2 = handle_loop(loop2, processed_counts,
+                                           entryPoint, exitPoint,
+                                           path_list, loop_id,
+                                           all_agents, set())
+                        if nas2:
+                            all_agents.update(nas2)
+                            loop_id += 1
+
+            # Mark visited and debug step
+            path_list.append(p)
+            path_set.add(p)
+            print(f"Step to {p}: search path {path_list}")
+
+        # Section boundary on direction change
         if direction != prev_dir:
             sec = Section(section_id, prev_turn, current, 0, [])
             sec.points = set(section_buf + [prev_turn, current])
             sections.append(sec)
-            section_buf.clear(); section_id += 1
+            section_buf.clear()
+            section_id += 1
             prev_turn, prev_dir = current, direction
-        current, direction = nxt, ("col" if direction == "row" else "row")
 
+        current, direction = nxt, ('col' if direction=='row' else 'row')
+
+    # Finalize exit
     a1 = knot_manager.graph.add_point(*exitPoint, is_agent=True)
     knot_manager.register_agent(a1)
     if prev_turn != exitPoint:
         r1, c1 = prev_turn; r2, c2 = exitPoint
         if r1 == r2:
             step = 1 if c2 > c1 else -1
-            section_buf += [ (r1, c) for c in range(c1+step, c2+step, step) ]
+            extra = [(r1, c) for c in range(c1+step, c2+step, step)]
         else:
             step = 1 if r2 > r1 else -1
-            section_buf += [ (r, c1) for r in range(r1+step, r2+step, step) ]
+            extra = [(r, c1) for r in range(r1+step, r2+step, step)]
+        section_buf.extend(extra)
         sec = Section(section_id, prev_turn, exitPoint, 0, [])
         sec.points = set(section_buf + [prev_turn, exitPoint])
         sections.append(sec)
 
-    crossing_cells = { (r,c) for r in range(len(matrixA)) for c in range(len(matrixA[0])) if matrixA[r][c] == 3 }
-    used, seen, pending = set(), set(), []
-    for sec in sections:
-        crosses = list(pending); pending.clear()
-        for pt in sec.points:
-            if pt in crossing_cells and pt in seen and pt not in used and pt not in (sec.start, sec.end):
-                pending.append(pt); used.add(pt)
-        sec.crossings = sorted(crosses); seen.update(sec.points)
-        vs, ve = matrixA[sec.start[0]][sec.start[1]], matrixA[sec.end[0]][sec.end[1]]
-        if vs == 1 and ve == -1: sec.over_under = -1
-        elif vs == -1 and ve == 1: sec.over_under = 1
-
-        # Final turn summary
-    turning_points = []
-    agent_coords = { a.pos_2d() for a in knot_manager.agent_registry.values() }
-    for i, pt in enumerate(path_list):
-        # detect geometric turn
-        is_turn = False
-        if 0 < i < len(path_list)-1:
-            prev_pt, next_pt = path_list[i-1], path_list[i+1]
-            if (prev_pt[0]==pt[0] and next_pt[0]!=pt[0]) or (prev_pt[1]==pt[1] and next_pt[1]!=pt[1]):
-                is_turn = True
-        # classify as agent or turn
-        if pt in agent_coords:
-            turning_points.append(TurningPoint(pt, is_agent=True))
-        elif is_turn:
-            turning_points.append(TurningPoint(pt, is_agent=False))
-
-    # remove straight agents
-    reduce_straight_agents(turning_points, path_list, crossing_cells)
-
-    return path_list, {a.pos_2d() for a in knot_manager.agent_registry.values()}, knot_manager.loop_registry, sections
-
-
+    return (
+        path_list,
+        {a.pos_2d() for a in knot_manager.agent_registry.values()},
+        knot_manager.loop_registry,
+        sections,
+    )
 
 def reduce_straight_agents(turning_points, path_list, crossing_cells):
     """
