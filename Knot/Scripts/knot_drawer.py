@@ -60,6 +60,8 @@ class ShapelyGUI:
         self.canvas = tk.Canvas(parent, width=600, height=600, bg="white")
         self.canvas.pack()
 
+        self.physics_running = False
+
         self.points, self.segments = [], []
         self.initial_crossings = {}
         self.dragging_point = None
@@ -80,6 +82,9 @@ class ShapelyGUI:
         self.avg_speed_buffer = []
         self.avg_speed_window_size = 7  # or 15
 
+        self.obstacles = []  # List of (center, radius)
+        self.selected_obstacle_idx = None  # For dragging center
+
         self.prev_force_dirs = [np.zeros(2, dtype=float) for _ in range(len(self.points))]
         self.vibrate_count = [0 for _ in range(len(self.points))]
 
@@ -93,15 +98,15 @@ class ShapelyGUI:
             entry.grid(row=row, column=1)
             setattr(self, entry_attr, entry)
 
-        add_param(0, "Spring (k)", "k_entry", 0.07)
-        add_param(1, "Damping (c)", "c_entry", 0.08)
-        add_param(2, "Mass (m)", "m_entry", 0.6)
+        add_param(0, "Spring (k)", "k_entry", 0.04)
+        add_param(1, "Damping (c)", "c_entry", 0.04)
+        add_param(2, "Mass (m)", "m_entry", 0.4)
         add_param(3, "Time Step (dt)", "dt_entry", 0.4)
-        add_param(4, "Straighten", "straighten_force_entry", 1.3)
+        add_param(4, "Straighten", "straighten_force_entry", 1.5)
         add_param(5, "Repel Strength", "repulsion_entry", 4.0)
         add_param(6, "Min Dist", "min_dist_entry", 30.0)
         add_param(7, "Locked Mult", "locked_repel_multiplier_entry", 10.0)
-        add_param(8, "Conv Thresh", "conv_thresh_entry", 0.12)
+        add_param(8, "Conv Thresh", "conv_thresh_entry", 0.0001)
         add_param(9, "Conv Frames", "conv_steps_entry", 12)
 
         self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants)
@@ -112,6 +117,15 @@ class ShapelyGUI:
         self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment)
         self.next_btn.pack()
 
+        self.add_obstacle_btn = tk.Button(parent, text="Add Obstacle", command=self.add_obstacle)
+        self.add_obstacle_btn.pack()
+
+        tk.Label(param_frame, text="Obstacle Radius").grid(row=10, column=0, sticky='w')
+        self.obstacle_radius_slider = tk.Scale(param_frame, from_=10, to=200, orient='horizontal',
+                                               command=self.update_obstacle_radius)
+        self.obstacle_radius_slider.set(50)
+        self.obstacle_radius_slider.grid(row=10, column=1)
+
         self.radius = 50
         self.straighten_step = 0
         self.ordered_indices = []
@@ -120,8 +134,17 @@ class ShapelyGUI:
         self.canvas.bind("<B1-Motion>", self.on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_drag_end)
 
+        self.auto_converge = tk.BooleanVar(value=True)
+        self.auto_converge_check = tk.Checkbutton(
+            parent, text="Auto-Converge", variable=self.auto_converge
+        )
+        self.auto_converge_check.pack()
+
+        self.start_btn = tk.Button(parent, text="Start Physics", command=self.start_physics)
+
+        self.start_btn.pack()
+
         self.update_physics_constants()
-        self.run_physics()
 
     def lock_points(self, point_ids):
         for pid in point_ids:
@@ -153,6 +176,15 @@ class ShapelyGUI:
             print("⚠️ Invalid input.")
 
     def on_drag_start(self, e):
+        # Check if clicked near an obstacle center
+        for idx, (cx, cy) in enumerate([obs[0] for obs in self.obstacles]):
+            if abs(cx - e.x) < 8 and abs(cy - e.y) < 8:
+                self.selected_obstacle_idx = idx
+                # Sync slider with selected obstacle radius
+                self.obstacle_radius_slider.set(self.obstacles[idx][1])
+                return
+
+        # Check if clicked on a movable (non-locked) point
         for pt in self.points:
             if pt.id in self.locked_indices:
                 continue
@@ -160,16 +192,34 @@ class ShapelyGUI:
             if abs(x - e.x) <= 6 and abs(y - e.y) <= 6:
                 self.dragging_point = pt
                 self.original_positions = [p.pos for p in self.points]
-                break
+                return
+
+        # If click missed both obstacle and point, clear selection
+        self.selected_obstacle_idx = None
 
     def on_drag_motion(self, e):
+        # Dragging an obstacle
+        if self.selected_obstacle_idx is not None:
+            _, r = self.obstacles[self.selected_obstacle_idx]
+            self.obstacles[self.selected_obstacle_idx] = ((e.x, e.y), r)
+            self.redraw()
+            return
+
+        # Dragging a point
         if self.dragging_point:
             self.points[self.dragging_point.id].pos = (e.x, e.y)
             self.redraw()
 
     def on_drag_end(self, e):
+        # Finish obstacle dragging
+        if self.selected_obstacle_idx is not None:
+            self.selected_obstacle_idx = None
+            return
+
+        # Finish point dragging with crossing check
         if not self.dragging_point:
             return
+
         idx = self.dragging_point.id
         old_pos = self.original_positions[idx]
         self.points[idx].pos = (e.x, e.y)
@@ -182,6 +232,27 @@ class ShapelyGUI:
             print(f"✅ Drag complete for point {idx}")
         self.dragging_point = None
         self.redraw()
+
+    def add_obstacle(self):
+        x, y = int(self.canvas['width']) // 2, int(self.canvas['height']) // 2
+        r = self.obstacle_radius_slider.get()
+        self.obstacles.append(((x, y), r))
+        self.selected_obstacle_idx = len(self.obstacles) - 1
+        self.redraw()
+
+    def update_obstacle_radius(self, value):
+        if self.selected_obstacle_idx is not None:
+            center, _ = self.obstacles[self.selected_obstacle_idx]
+            self.obstacles[self.selected_obstacle_idx] = (center, float(value))
+            self.redraw()
+
+    def start_physics(self):
+        if self.physics_running:
+            return
+        self.physics_running = True
+        self.start_btn.config(state='disabled')
+        print("▶️ Starting physics loop")
+        self.run_physics()
 
     def run_physics(self):
         def normalize(vec):
@@ -251,6 +322,51 @@ class ShapelyGUI:
                     v2 = normalize(p_next - p_curr)
                     bisector = normalize(v1 + v2)
                     force_map[pid] += straighten_strength * bisector
+            # Obstacle repulsion
+            for i, pt in enumerate(self.points):
+                pos = np.array(pt.pos, dtype=float)
+                for center, radius in self.obstacles:
+                    disp = pos - np.array(center, dtype=float)
+                    dist = np.linalg.norm(disp)
+                    if dist < 1e-3:
+                        disp = np.random.randn(2) * 0.01
+                        dist = 1e-3
+                    if dist < radius:
+                        repel_dir = normalize(disp)
+                        delta = min((radius - dist) / radius, 1.0)
+                        strength = 300.0 * (delta ** 2)
+                        if dist < radius * 0.7:
+                            strength *= 8
+                        elif dist < radius * 0.4:
+                            strength *= 20
+                        repel_force = repel_dir * strength
+                        force_map[i] += repel_force
+            # Segment-to-obstacle repulsion
+            for seg in self.segments:
+                p1 = np.array(self.points[seg.p1].pos, dtype=float)
+                p2 = np.array(self.points[seg.p2].pos, dtype=float)
+                seg_vec = p2 - p1
+                seg_len = np.linalg.norm(seg_vec)
+                if seg_len == 0:
+                    continue
+                direction = seg_vec / seg_len
+
+                num_samples = max(2, int(seg_len / 5))  # sample every ~5px
+                for k in range(1, num_samples):
+                    t = k / num_samples
+                    sample_point = p1 * (1 - t) + p2 * t
+                    for center, radius in self.obstacles:
+                        disp = sample_point - np.array(center)
+                        dist = np.linalg.norm(disp)
+                        if dist < radius:
+                            repel_dir = disp / (dist + 1e-5)
+                            delta = min((radius - dist) / radius, 1.0)
+                            strength = 200.0 * (delta ** 2)
+                            force = repel_dir * strength
+
+                            # Distribute force to endpoints
+                            force_map[seg.p1] += force * (1 - t)
+                            force_map[seg.p2] += force * t
 
             for i, pt in enumerate(self.points):
                 pt_pos = np.array(pt.pos, dtype=float)
@@ -282,16 +398,41 @@ class ShapelyGUI:
 
             for i in active_intermediates:
                 f_now = force_map[i]
-                if np.linalg.norm(f_now) > 5.0:
-                    print(f"🧊 Force-freezing point {i} due to jitter spike")
-                    self.velocities[i] = np.zeros(2)
-                    self.frozen_intermediates.add(i)
+
+                if not self.auto_converge.get():
+                    # 🛑 If convergence is off, we never freeze points
+                    self.prev_force_dirs[i] = f_now
                     continue
+
+                if np.linalg.norm(f_now) > 5.0:
+                    # Check if point is inside an obstacle
+                    pos = np.array(self.points[i].pos, dtype=float)
+                    inside_obstacle = any(
+                        np.linalg.norm(pos - np.array(center)) < radius
+                        for center, radius in self.obstacles
+                    )
+                    if not inside_obstacle:
+                        print(f"🧊 Force-freezing point {i} due to jitter spike")
+                        self.velocities[i] = np.zeros(2)
+                        self.frozen_intermediates.add(i)
+                    else:
+                        print(f"🛑 Skipping freeze for point {i} — still inside obstacle")
+                    continue
+
                 self.prev_force_dirs[i] = f_now
 
             for i, pti in enumerate(self.points):
-                if pti == self.dragging_point or i in self.locked_indices or i in self.frozen_intermediates:
+                force = force_map[i]
+                force_norm = np.linalg.norm(force)
+
+                if pti == self.dragging_point:
                     continue
+
+                # Allow movement for locked/frozen if force is strong enough (esp. obstacle repulsion)
+                is_repel_escape = force_norm > 50.0
+                if (i in self.locked_indices or i in self.frozen_intermediates) and not is_repel_escape:
+                    continue
+
                 acc = force_map[i] / m
                 raw_velocity = acc * dt
                 self.velocities[i] = 0.8 * self.velocities[i] + 0.2 * raw_velocity
@@ -309,20 +450,35 @@ class ShapelyGUI:
 
             if self.frames_since_segment_start <= self.convergence_skip_frames:
                 pass
-                # print(
-                #     f"⏳ Skipping convergence check ({self.frames_since_segment_start}/{self.convergence_skip_frames})")
             else:
                 intermediates = [i for i in self.manual_locked_indices if i not in self.locked_indices]
                 if not intermediates:
-                    # print("✅ No intermediates remaining. Advancing to next segment.")
                     self.next_segment()
                     self.converged_counter = 0
                     self.frames_since_segment_start = 0
                 elif all(i in self.frozen_intermediates for i in intermediates):
-                    print("✅ All intermediates frozen. Advancing to next segment.")
-                    self.next_segment()
-                    self.converged_counter = 0
-                    self.frames_since_segment_start = 0
+                    stuck_inside = False
+                    for i in intermediates:
+                        pt_pos = np.array(self.points[i].pos, dtype=float)
+                        for center, radius in self.obstacles:
+                            if np.linalg.norm(pt_pos - np.array(center)) < radius:
+                                print(f"⛔ Frozen point {i} still inside obstacle")
+                                stuck_inside = True
+                                break
+                        if stuck_inside:
+                            break
+
+                    if not stuck_inside:
+                        print("✅ All intermediates frozen and clear of obstacles.")
+                        if self.auto_converge.get():
+                            print("➡️ Auto-converge: advancing to next segment.")
+                            self.next_segment()
+                            self.converged_counter = 0
+                            self.frames_since_segment_start = 0
+                        else:
+                            print("⏸️ Auto-converge disabled — waiting for manual advance.")
+                    else:
+                        print("🛑 Obstacle violation — holding segment.")
                 else:
                     moving_speeds = [np.linalg.norm(self.velocities[i]) for i in intermediates if
                                      i not in self.frozen_intermediates]
@@ -346,10 +502,15 @@ class ShapelyGUI:
                         else:
                             self.converged_counter = 0
                         if self.converged_counter >= self.converged_steps_required:
-                            print("✅ Speed convergence reached. Advancing to next segment.")
-                            self.next_segment()
-                            self.converged_counter = 0
-                            self.frames_since_segment_start = 0
+                            print("✅ Speed convergence reached.")
+                            if self.auto_converge.get():
+                                print("➡️ Advancing to next segment.")
+                                self.next_segment()
+                                self.converged_counter = 0
+                                self.frames_since_segment_start = 0
+                            else:
+                                print("⏸️ Auto-converge disabled — waiting for manual advance.")
+
 
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
@@ -413,7 +574,6 @@ class ShapelyGUI:
         drawn_pairs = set()
         already_drawn = set()
 
-        # First draw all underpasses with gaps
         for i, seg1 in enumerate(self.segments):
             for j in range(i + 1, len(self.segments)):
                 seg2 = self.segments[j]
@@ -450,7 +610,6 @@ class ShapelyGUI:
                     self.canvas.create_line(*a, *(pt_coords - offset), fill="black", width=2)
                     self.canvas.create_line(*(pt_coords + offset), *b, fill="black", width=2)
 
-                # Draw gap on underpass
                 if seg1.is_overpass:
                     draw_gapped_segment(p2a, p2b)
                     already_drawn.add(seg2.id)
@@ -458,7 +617,6 @@ class ShapelyGUI:
                     draw_gapped_segment(p1a, p1b)
                     already_drawn.add(seg1.id)
 
-        # Now draw all segments fully (including overpasses)
         for seg in self.segments:
             if seg.id in already_drawn:
                 continue
@@ -484,6 +642,12 @@ class ShapelyGUI:
                 self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2)
             else:
                 self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="black")
+
+        # === Draw obstacles ===
+        for center, radius in self.obstacles:
+            cx, cy = center
+            self.canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline="red", width=2)
+            self.canvas.create_oval(cx - 4, cy - 4, cx + 4, cy + 4, fill="red")
 
     def draw_sections(self, section_list, agent_points_set):
         self.clear()

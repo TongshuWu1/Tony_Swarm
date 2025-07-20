@@ -7,6 +7,9 @@ import math
 from knot_drawer import ShapelyGUI
 import copy
 
+import sys
+
+
 class Knot_GUI:
     def __init__(self, root):
         self.root = root
@@ -210,6 +213,11 @@ class Knot_GUI:
         )
         self.draw_sections_btn.pack(pady=5)
 
+        self.reload_button = tk.Button(
+            self.button_frame, text="Reload App", command=self.reload_program
+        )
+        self.reload_button.pack(pady=5)
+
     def zoom_in(self):
         self.zoom_scale = min(3.0, self.zoom_scale + 0.1)
         self.apply_full_zoom()
@@ -223,6 +231,42 @@ class Knot_GUI:
             self.zoom_in()
         else:
             self.zoom_out()
+
+    def reload_program(self):
+        confirm = messagebox.askyesno("Soft Reload", "Clear all data and restart interface?")
+        if not confirm:
+            return
+
+        self.clear_all()  # This resets most UI and left-side canvas
+
+        # Reset internal data
+        self.section_list = None
+        self.agent_points = None
+        self.loop_map = None
+        self.crossing_points = set()
+        self.loop_colors = {}
+
+        # Reset labels and output
+        self.path_text.delete("1.0", tk.END)
+        self.original_points_label.config(text="Total number of original points: ")
+        self.agents_needed_label.config(text="Total number of agents needed after reduction: ")
+        self.crossing_number_label.config(text="Total number of crossings: ")
+
+        # Reset zoom
+        self.zoom_scale = 1.0
+        self.last_scale = 1.0
+        self.apply_full_zoom()
+
+        if hasattr(self.knot_drawer, "clear"):
+            self.knot_drawer.clear()
+        elif hasattr(self.knot_drawer, "canvas"):
+            self.knot_drawer.canvas.delete("all")
+
+        # 🔁 Also re-enable Start Physics button
+        self.knot_drawer.physics_running = False
+        self.knot_drawer.start_btn.config(state='normal')
+
+        print("🔄 All canvases and data have been reset.")
 
     def set_zoom(self, scale):
         scale = max(0.5, min(scale, 3.0))
