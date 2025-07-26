@@ -391,11 +391,6 @@ def handle_loop(
 
 
 def trace_knot_path(matrixA, entryPoint, exitPoint):
-    """
-    Walk the knot from entry to exit, detecting loops, and print detailed debug info.
-    Returns path_list, agent coords, loop registry, and sections.
-    """
-
     def is_opposite_corners(p1, p2, loop):
         xs = [x for x, _ in loop]
         ys = [y for _, y in loop]
@@ -565,13 +560,47 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         sec.points = set(section_buf + [prev_turn, exitPoint])
         sections.append(sec)
 
+    # 🔧 Agent pruning logic: remove mid-agent if both surrounding segments are uncrossed
+    agent_coords = [a.pos_2d() for a in knot_manager.agent_registry.values()]
+    agent_coords.sort(key=lambda pt: path_list.index(pt) if pt in path_list else -1)
+
+    crossing_cells = set()
+    for row in range(len(matrixA)):
+        for col in range(len(matrixA[0])):
+            if matrixA[row][col] == 3:
+                crossing_cells.add((row, col))
+
+    pruned = []
+    i = 1
+    while i < len(agent_coords) - 1:
+        a, b, c = agent_coords[i - 1], agent_coords[i], agent_coords[i + 1]
+
+        def seg_points(p1, p2):
+            if p1[0] == p2[0]:
+                return [(p1[0], col) for col in range(min(p1[1], p2[1]) + 1, max(p1[1], p2[1]))]
+            elif p1[1] == p2[1]:
+                return [(row, p1[1]) for row in range(min(p1[0], p2[0]) + 1, max(p1[0], p2[0]))]
+            return []
+
+        if any(p in crossing_cells for p in seg_points(a, b) + seg_points(b, c)):
+            i += 1
+            continue
+
+        # Prune agent at B
+        for aid, pt in list(knot_manager.agent_registry.items()):
+            if pt.pos_2d() == b:
+                del knot_manager.agent_registry[aid]
+                print(f"➖ Removed agent at {b} — uncrossed inline")
+                pruned.append(b)
+                break
+        i += 1
+
     return (
         path_list,
         {a.pos_2d() for a in knot_manager.agent_registry.values()},
         knot_manager.loop_registry,
         sections,
     )
-
 
 def reduce_straight_agents(turning_points, path_list, crossing_cells):
     """

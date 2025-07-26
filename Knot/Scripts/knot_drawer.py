@@ -3,6 +3,7 @@ from shapely.geometry import LineString
 import numpy as np
 from geometry_utils import check_preserve_crossings_and_update_gaps
 from region_detection import compute_agent_reduction, knot_manager, read_path
+from tkinter import filedialog
 
 
 class KnotPoint:
@@ -19,6 +20,8 @@ class KnotSegment:
         self.p2 = p2_id
         self.is_overpass = is_overpass
         self.gap_at = []
+
+
 
 
 def compute_crossings_from_points(points, segments):
@@ -144,6 +147,9 @@ class ShapelyGUI:
 
         self.start_btn.pack()
 
+        self.save_btn = tk.Button(parent, text="Save Path Info", command=self.save_path_info)
+        self.save_btn.pack()
+
         self.update_physics_constants()
 
     def lock_points(self, point_ids):
@@ -151,6 +157,50 @@ class ShapelyGUI:
             self.manual_locked_indices.discard(pid)
             self.locked_indices.add(pid)
         print(f"🔒 Locked points: {point_ids}")
+
+    def update_all_positions_centered(self):
+        if not self.points:
+            return
+
+        xs = [pt.pos[0] for pt in self.points]
+        ys = [pt.pos[1] for pt in self.points]
+        cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+
+        for pt in self.points:
+            x, y = pt.pos
+            pt.pos = (x - cx, y - cy)
+
+        print(f"📍 All point positions updated relative to center ({cx:.2f}, {cy:.2f})")
+
+    def save_path_info(self):
+        if not self.points:
+            print("⚠️ No points to save.")
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt")],
+            title="Save Centered Knot Points"
+        )
+        if not filepath:
+            return
+
+        try:
+            with open(filepath, "w") as f:
+                f.write("Index\tX\tY\tType\n")
+                for pt in self.points:
+                    x, y = pt.pos
+                    if pt.is_agent:
+                        label = "Agent"
+                    elif pt.id in self.locked_indices:
+                        label = "Turn"
+                    else:
+                        label = "None"
+                    f.write(f"{pt.id}\t{x:.2f}\t{y:.2f}\t{label}\n")
+
+            print(f"✅ Saved knot points to {filepath} with centered coordinates.")
+        except Exception as e:
+            print(f"❌ Failed to save file: {e}")
 
     def update_physics_constants(self):
         try:
@@ -740,8 +790,10 @@ if __name__ == "__main__":
     try:
         mat, entry, exit = read_path()
         _, _, _, _, _, secs = compute_agent_reduction(mat, entry, exit)
+        app.full_path_list = _  # ⬅️ This stores the traced path from compute_agent_reduction
         agents = {p.pos_2d() for p in knot_manager.agent_registry.values()}
         app.draw_sections(secs, agents)
+
     except Exception as e:
         print("⚠️", e)
     root.mainloop()
