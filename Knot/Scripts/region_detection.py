@@ -608,6 +608,58 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
     )
 
 
+def reduce_straight_agents(turning_points, path_list, crossing_cells):
+    """
+    Remove agent at turning point `b` if:
+    - b is an agent
+    - segments ab and bc both do not include a crossing
+    """
+    point_set = set(p[:2] for p in path_list)
+    i = 1
+    while i < len(turning_points) - 1:
+        tp_prev = turning_points[i - 1]
+        tp_mid = turning_points[i]
+        tp_next = turning_points[i + 1]
+
+        if not tp_mid.is_agent:
+            i += 1
+            continue
+
+        a = tp_prev.point
+        b = tp_mid.point
+        c = tp_next.point
+
+        # Check for crossings in segments a→b and b→c
+        def get_segment_points(p1, p2):
+            if p1[0] == p2[0]:
+                step = 1 if p2[1] > p1[1] else -1
+                return [(p1[0], col) for col in range(p1[1] + step, p2[1], step)]
+            elif p1[1] == p2[1]:
+                step = 1 if p2[0] > p1[0] else -1
+                return [(row, p1[1]) for row in range(p1[0] + step, p2[0], step)]
+            else:
+                return []
+
+        ab_cross = any(pt in crossing_cells for pt in get_segment_points(a, b))
+        bc_cross = any(pt in crossing_cells for pt in get_segment_points(b, c))
+
+        if ab_cross or bc_cross:
+            i += 1
+            continue
+
+        # Remove agent at b
+        tp_mid.is_agent = False
+        to_remove = None
+        for agent_id, point in knot_manager.agent_registry.items():
+            if point.pos_2d() == b:
+                to_remove = agent_id
+                break
+        if to_remove is not None:
+            del knot_manager.agent_registry[to_remove]
+            print(f"\u2796 Removed agent at {b} (turning point, no segment crossing)")
+
+        i += 1
+
 def segment_points_between(p1, p2):
     points = []
     if p1[0] == p2[0]:  # horizontal
