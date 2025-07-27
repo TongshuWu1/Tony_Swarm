@@ -82,29 +82,45 @@ def determine_crossing_behavior(start, end, matrixA):
     over = False
     under = False
 
+    print(f"\n🔍 Evaluating segment: {start} -> {end}")
+
     if r1 == r2:  # Horizontal
         for c in range(min(c1, c2) + 1, max(c1, c2)):
-            if matrixA[r1][c] == 3:
+            val = matrixA[r1][c]
+            print(f"   - Cell ({r1}, {c}) = {val}")
+            if val == 3:
                 crossing_cells.add((r1, c))
-                if matrixA[r1][c1] == 1:
+                print(f"     🟡 Found crossing at ({r1}, {c})")
+                start_val = matrixA[r1][c1]
+                print(f"     🔸 Start value = {start_val}")
+                if start_val == 1:
                     under = True
-                elif matrixA[r1][c1] == -1:
+                elif start_val == -1:
                     over = True
     elif c1 == c2:  # Vertical
         for r in range(min(r1, r2) + 1, max(r1, r2)):
-            if matrixA[r][c1] == 3:
+            val = matrixA[r][c1]
+            print(f"   - Cell ({r}, {c1}) = {val}")
+            if val == 3:
                 crossing_cells.add((r, c1))
-                if matrixA[r1][c1] == 1:
+                print(f"     🟡 Found crossing at ({r}, {c1})")
+                start_val = matrixA[r1][c1]
+                print(f"     🔸 Start value = {start_val}")
+                if start_val == 1:
                     under = True
-                elif matrixA[r1][c1] == -1:
+                elif start_val == -1:
                     over = True
 
     if over and not under:
+        print("   ✅ Marked as OVERPASS")
         return 1, crossing_cells
-    if under and not over:
+    elif under and not over:
+        print("   ✅ Marked as UNDERCROSS")
         return -1, crossing_cells
-    if over and under:
-        print(f"⚠️ Conflicting crossing behavior: {start}->{end}")
+    elif over and under:
+        print(f"   ⚠️ Conflicting crossing behavior: {start}->{end}")
+    else:
+        print("   ⚪️ No crossing behavior found")
     return 0, crossing_cells
 
 
@@ -571,12 +587,14 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
             print(f"Step to {p}: search path {path_list}")
 
         if direction != prev_dir:
-            sec = Section(section_id, prev_turn, current, 0, [])
+            over_under, crossings = determine_crossing_behavior(prev_turn, current, matrixA)
+            sec = Section(section_id, prev_turn, current, over_under, list(crossings))
             sec.points = set(section_buf + [prev_turn, current])
             sections.append(sec)
             section_buf.clear()
             section_id += 1
             prev_turn, prev_dir = current, direction
+
 
         current, direction = nxt, ("col" if direction == "row" else "row")
 
@@ -599,6 +617,31 @@ def trace_knot_path(matrixA, entryPoint, exitPoint):
         sec.points = set(section_buf + [prev_turn, exitPoint])
         sections.append(sec)
 
+    # Analyze crossings
+    crossing_cells = {(r, c) for r in range(len(matrixA)) for c in range(len(matrixA[0])) if matrixA[r][c] == 3}
+
+    # Detect turning points
+    turning_points = []
+    agent_coords = {agent.pos_2d() for agent in knot_manager.agent_registry.values()}
+    for i, pt in enumerate(path_list):
+        is_turn = False
+        if 0 < i < len(path_list) - 1:
+            prev = path_list[i - 1]
+            nxt = path_list[i + 1]
+            if (prev[0] == pt[0] and nxt[0] != pt[0]) or (prev[1] == pt[1] and nxt[1] != pt[1]):
+                is_turn = True
+        if pt in agent_coords:
+            turning_points.append(TurningPoint(pt, is_agent=True))
+        elif is_turn:
+            turning_points.append(TurningPoint(pt, is_agent=False))
+
+    # Reduce straight-line agents
+    reduce_straight_agents(turning_points, path_list, crossing_cells)
+    section_buf.extend(extra)
+    over_under, crossings = determine_crossing_behavior(prev_turn, exitPoint, matrixA)
+    sec = Section(section_id, prev_turn, exitPoint, over_under, list(crossings))
+    sec.points = set(section_buf + [prev_turn, exitPoint])
+    sections.append(sec)
 
     return (
         path_list,

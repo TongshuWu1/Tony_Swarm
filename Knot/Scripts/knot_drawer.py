@@ -704,7 +704,11 @@ class ShapelyGUI:
 
     def draw_sections(self, section_list, agent_points_set):
         self.clear()
-        path_order = [section_list[0].start] + [sec.end for sec in section_list]
+        path_order = [section_list[0].start]
+        for sec in section_list:
+            if sec.end != path_order[-1]:  # avoid duplicate if last end matches previous
+                path_order.append(sec.end)
+
         xs = [p[1] for p in path_order]
         ys = [p[0] for p in path_order]
 
@@ -730,10 +734,23 @@ class ShapelyGUI:
             id_map[p] = idx
             self.points.append(KnotPoint(idx, x, y, p in agent_points_set))
 
-        # Create KnotSegments
+        # Create KnotSegments, skipping duplicates
+        existing_seg_pairs = set()
         for sec in section_list:
             p1, p2 = id_map[sec.start], id_map[sec.end]
+            pair = tuple(sorted((p1, p2)))  # order-independent key
+            if pair in existing_seg_pairs:
+                print(f"⚠️ Skipping duplicate segment between {self.points[p1].pos} and {self.points[p2].pos}")
+                continue
+            existing_seg_pairs.add(pair)
             self.segments.append(KnotSegment(len(self.segments), p1, p2, sec.over_under == 1))
+
+        # 🔍 Print segment info
+        print("📏 Segment List:")
+        for seg in self.segments:
+            start_pt = self.points[seg.p1].pos
+            end_pt = self.points[seg.p2].pos
+            print(f"  Segment {seg.id}: Start {start_pt}, End {end_pt}, Overpass: {seg.is_overpass}")
 
         self.ordered_indices = [id_map[p] for p in path_order if p in agent_points_set]
 
