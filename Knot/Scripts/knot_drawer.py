@@ -4,6 +4,7 @@ import numpy as np
 from geometry_utils import check_preserve_crossings_and_update_gaps
 from region_detection import compute_agent_reduction, knot_manager, read_path
 from tkinter import filedialog
+import csv
 
 
 class KnotPoint:
@@ -178,16 +179,18 @@ class ShapelyGUI:
             return
 
         filepath = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt")],
-            title="Save Centered Knot Points"
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Save Knot Path as CSV"
         )
         if not filepath:
             return
 
         try:
-            with open(filepath, "w") as f:
-                f.write("Index\tX\tY\tType\n")
+            with open(filepath, "w", newline="") as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(["Index", "X", "Y", "Type"])
+
                 for pt in self.points:
                     x, y = pt.pos
                     if pt.is_agent:
@@ -196,12 +199,12 @@ class ShapelyGUI:
                         label = "Turn"
                     else:
                         label = "None"
-                    f.write(f"{pt.id}\t{x:.2f}\t{y:.2f}\t{label}\n")
 
-            print(f"✅ Saved knot points to {filepath} with centered coordinates.")
+                    writer.writerow([pt.id, f"{x:.2f}", f"{y:.2f}", label])
+
+            print(f"✅ Saved knot path to {filepath} as CSV.")
         except Exception as e:
             print(f"❌ Failed to save file: {e}")
-
     def update_physics_constants(self):
         try:
             self.k = float(self.k_entry.get())

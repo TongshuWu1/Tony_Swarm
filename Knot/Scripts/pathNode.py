@@ -50,6 +50,14 @@ class KnotPoint:
     def pos_3d(self):
         return (self.row, self.col, self.z)
 
+class TurningPoint:
+    def __init__(self, point, is_agent=False):
+        self.point = point  # (row, col)
+        self.is_agent = is_agent
+
+    def __repr__(self):
+        return f"{'Agent' if self.is_agent else 'Path'}@{self.point}"
+
 
 class KnotSegment:
     def __init__(self, seg_id, start_point, end_point, over_under=0):
