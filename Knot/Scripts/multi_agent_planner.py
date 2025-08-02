@@ -31,6 +31,7 @@ def load_path_from_csv(file_path):
     index_to_point = {}
     path_sequence = []
     agent_indices = []
+    type_map = {}
     entry_point = None
 
     with open(file_path, newline="") as f:
@@ -40,9 +41,11 @@ def load_path_from_csv(file_path):
             x = float(row["X"]) * PIXEL_TO_METER
             y = float(row["Y"]) * PIXEL_TO_METER
             label = row.get("Type", "").strip().lower()
+            cross = row.get("CrossType", "").strip().lower()
 
             index_to_point[index] = (x, y)
             path_sequence.append(index)
+            type_map[index] = (label, cross)
 
             if label == "agent":
                 agent_indices.append(index)
@@ -52,7 +55,9 @@ def load_path_from_csv(file_path):
     if entry_point is None:
         raise RuntimeError("❌ Entry point (Index 0) not found!")
 
-    return index_to_point, path_sequence, agent_indices, entry_point
+    return index_to_point, path_sequence, agent_indices, entry_point, type_map
+
+
 
 def center_and_scale(index_to_point, entry_point):
     xs = [pt[0] for pt in index_to_point.values()]
@@ -94,18 +99,35 @@ def draw_path(sim, index_to_point, path_sequence):
         x2, y2 = index_to_point[b]
         sim.addDrawingObjectItem(line_handle, [x1, y1, SPHERE_HEIGHT, x2, y2, SPHERE_HEIGHT])
 
-def draw_path_points(sim, index_to_point, agent_indices):
+def draw_path_points(sim, index_to_point, type_map):
     for index, (x, y) in index_to_point.items():
+        label, cross_type = type_map.get(index, ("", ""))
         z = SPHERE_HEIGHT
-        size = 0.03 if index not in agent_indices else 0.05
-        color = [0.6, 0.6, 0.6] if index not in agent_indices else [1.0, 0.0, 0.0]
 
+        # === Skip turn points (no visual) ===
+        if label == "turn":
+            continue
+
+        # === Determine color ===
+        if label == "agent":
+            color = [1.0, 0.0, 0.0]  # red
+            size = 0.05
+        elif label == "crossing" and cross_type == "crossing-over":
+            color = [0.2, 0.4, 1.0]  # blue
+            size = 0.035
+        elif label == "crossing" and cross_type == "crossing-under":
+            color = [0.0, 0.8, 0.0]  # green
+            size = 0.035
+        else:
+            continue  # unhandled type
+
+        # === Draw sphere ===
         sphere = sim.createPrimitiveShape(1, [size, size, size])
         sim.setObjectPosition(sphere, -1, [x, y, z])
         sim.setShapeColor(sphere, None, sim.colorcomponent_ambient_diffuse, color)
         sim.setObjectAlias(sphere, f"Point_{index}")
 
-def scale_drone(sim, drone_handle, scale_factor=0.3):
+def scale_drone(sim, drone_handle, scale_factor=1):
     # Get all shapes inside the drone model
     shapes = sim.getObjectsInTree(drone_handle, sim.object_shape_type, 0)
 
@@ -240,7 +262,8 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
 
 def main():
     csv_path = select_csv_file()
-    index_to_point, path_sequence, agent_indices, entry_point = load_path_from_csv(csv_path)
+    index_to_point, path_sequence, agent_indices, entry_point, type_map = load_path_from_csv(csv_path)
+
     index_to_point, entry_point = center_and_scale(index_to_point, entry_point)
 
     client = RemoteAPIClient()
@@ -248,7 +271,7 @@ def main():
 
     cleanup_scene(sim)
     draw_path(sim, index_to_point, path_sequence)
-    draw_path_points(sim, index_to_point, agent_indices)
+    draw_path_points(sim, index_to_point, type_map)
 
     drones, targets, drone_start_positions = spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point)
 

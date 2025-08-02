@@ -181,30 +181,85 @@ class ShapelyGUI:
         filepath = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            title="Save Knot Path as CSV"
+            title="Save Full Path with Crossings"
         )
         if not filepath:
             return
 
+        def find_segment(p1_id, p2_id):
+            for s in self.segments:
+                if (s.p1 == p1_id and s.p2 == p2_id) or (s.p1 == p2_id and s.p2 == p1_id):
+                    return s
+            return None
+
         try:
             with open(filepath, "w", newline="") as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(["Index", "X", "Y", "Type"])
+                writer.writerow(["Index", "X", "Y", "Type", "CrossType"])
 
-                for pt in self.points:
-                    x, y = pt.pos
-                    if pt.is_agent:
-                        label = "Agent"
-                    elif pt.id in self.locked_indices:
-                        label = "Turn"
-                    else:
-                        label = "None"
+                written = set()
+                next_index = max(pt.id for pt in self.points) + 1
 
-                    writer.writerow([pt.id, f"{x:.2f}", f"{y:.2f}", label])
+                # Get full path order (agents and turns)
+                full_path_ids = []
+                for i in range(len(self.ordered_indices) - 1):
+                    id_a = self.ordered_indices[i]
+                    id_b = self.ordered_indices[i + 1]
+                    path_ids = [p.id for p in self.points]
+                    idx_a = path_ids.index(id_a)
+                    idx_b = path_ids.index(id_b)
+                    if idx_a > idx_b:
+                        idx_a, idx_b = idx_b, idx_a
+                    full_path_ids.extend(path_ids[idx_a:idx_b])
+                full_path_ids.append(self.ordered_indices[-1])
+                full_path_ids = list(dict.fromkeys(full_path_ids))  # remove duplicates, preserve order
 
-            print(f"✅ Saved knot path to {filepath} as CSV.")
+                for i in range(len(full_path_ids) - 1):
+                    id_a = full_path_ids[i]
+                    id_b = full_path_ids[i + 1]
+                    pt_a = self.points[id_a]
+                    pt_b = self.points[id_b]
+
+                    seg = find_segment(id_a, id_b)
+                    if seg is None:
+                        print(f"⚠️ Segment not found between {id_a} and {id_b}")
+                        continue
+
+                    # Write point A
+                    if id_a not in written:
+                        x, y = pt_a.pos
+                        point_type = "Agent" if pt_a.is_agent else "Turn"
+                        writer.writerow([pt_a.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"])
+                        written.add(id_a)
+
+                    # Insert crossings with prior segments
+                    curr_line = LineString([pt_a.pos, pt_b.pos])
+                    for other in self.segments:
+                        if other.id >= seg.id:
+                            continue  # only earlier segments
+                        other_line = LineString([
+                            self.points[other.p1].pos,
+                            self.points[other.p2].pos
+                        ])
+                        if curr_line.crosses(other_line):
+                            pt = curr_line.intersection(other_line)
+                            if pt.geom_type == "Point":
+                                x, y = pt.coords[0]
+                                cross_type = "Crossing-Over" if seg.is_overpass else "Crossing-Under"
+                                writer.writerow([next_index, f"{x:.2f}", f"{y:.2f}", "Crossing", cross_type])
+                                next_index += 1
+
+                    # Write point B
+                    if id_b not in written:
+                        x, y = pt_b.pos
+                        point_type = "Agent" if pt_b.is_agent else "Turn"
+                        writer.writerow([pt_b.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"])
+                        written.add(id_b)
+
+            print(f"✅ Full path (all points + crossings) saved to {filepath}")
         except Exception as e:
             print(f"❌ Failed to save file: {e}")
+
     def update_physics_constants(self):
         try:
             self.k = float(self.k_entry.get())
