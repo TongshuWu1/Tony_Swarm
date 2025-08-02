@@ -1,180 +1,264 @@
 import csv
-import time
-import os
-from math import hypot
-from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 import tkinter as tk
 from tkinter import filedialog
+from math import hypot
+import time
+from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
 # ───── Configuration ─────
-SCALE_FACTOR = 2.0          # Multiply size of the path
-PIXEL_TO_METER = 0.01       # Convert from pixels to meters
-SPHERE_HEIGHT = 0.05        # Height of marker spheres
-DRONE_SPEED = 1.0           # Speed in meters per second
-DEBUG_LOG = "Knot/path_info/debug_log.csv"
+PIXEL_TO_METER = 0.01
+SCALE_FACTOR = 2.0
+SPHERE_HEIGHT = 0.05
+DRONE_MODEL_PATH = "models/robots/mobile/Quadcopter.ttm"
 
-# ───── GUI File Dialog ─────
-root = tk.Tk()
-root.withdraw()
+DRONE_SPEED = 0.5        # meters per second
+STEP_INTERVAL = 0.05     # seconds per simulation step
+DRONE_ALTITUDE = 1.0
 
-csv_path = filedialog.askopenfilename(
-    title="Select Path CSV File",
-    filetypes=[("CSV files", "*.csv")]
-)
-if not csv_path:
-    print("❌ No file selected.")
-    exit()
+def select_csv_file():
+    root = tk.Tk()
+    root.withdraw()
+    file_path = filedialog.askopenfilename(
+        title="Select Path CSV File",
+        filetypes=[("CSV files", "*.csv")]
+    )
+    if not file_path:
+        print("❌ No file selected.")
+        exit()
+    return file_path
 
-# ───── Connect to CoppeliaSim ─────
-client = RemoteAPIClient()
-sim = client.getObject("sim")
+def load_path_from_csv(file_path):
+    index_to_point = {}
+    path_sequence = []
+    agent_indices = []
+    entry_point = None
 
-model_path = "models/robots/mobile/Quadcopter.ttm"
-agent_indices = []
-index_to_point = {}
-entry_point = None
-path_sequence = []
+    with open(file_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            index = int(row["Index"])
+            x = float(row["X"]) * PIXEL_TO_METER
+            y = float(row["Y"]) * PIXEL_TO_METER
+            label = row.get("Type", "").strip().lower()
 
-# ───── Read and Parse CSV ─────
-with open(csv_path, newline="") as f:
-    reader = csv.DictReader(f)
-    for row in reader:
-        index = int(row["Index"])
-        x = float(row["X"]) * PIXEL_TO_METER
-        y = float(row["Y"]) * PIXEL_TO_METER
-        label = row["Type"].strip().lower()
+            index_to_point[index] = (x, y)
+            path_sequence.append(index)
 
+            if label == "agent":
+                agent_indices.append(index)
+            if index == 0:
+                entry_point = (x, y)
+
+    if entry_point is None:
+        raise RuntimeError("❌ Entry point (Index 0) not found!")
+
+    return index_to_point, path_sequence, agent_indices, entry_point
+
+def center_and_scale(index_to_point, entry_point):
+    xs = [pt[0] for pt in index_to_point.values()]
+    ys = [pt[1] for pt in index_to_point.values()]
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+
+    for index in index_to_point:
+        x, y = index_to_point[index]
+        x = (x - mean_x) * SCALE_FACTOR
+        y = (y - mean_y) * SCALE_FACTOR
         index_to_point[index] = (x, y)
-        path_sequence.append(index)
 
-        if label == "agent":
-            agent_indices.append(index)
-        if index == 0:
-            entry_point = (x, y)
+    entry_x, entry_y = entry_point
+    entry_point = ((entry_x - mean_x) * SCALE_FACTOR, (entry_y - mean_y) * SCALE_FACTOR)
+    return index_to_point, entry_point
 
-if entry_point is None:
-    raise RuntimeError("❌ Entry point (Index 0) not found!")
+def cleanup_scene(sim):
+    all_objs = sim.getObjectsInTree(sim.handle_scene, sim.handle_all, 0)
+    for obj in all_objs:
+        alias = sim.getObjectAlias(obj)
+        if alias.startswith("Agent_") or alias.startswith("Point_") or alias == "KnotRawPath":
+            sim.removeObject(obj)
 
-# ───── Center the Path on (0, 0) and Apply Scaling ─────
-xs = [pt[0] for pt in index_to_point.values()]
-ys = [pt[1] for pt in index_to_point.values()]
-mean_x = sum(xs) / len(xs)
-mean_y = sum(ys) / len(ys)
+def draw_path(sim, index_to_point, path_sequence):
+    line_handle = sim.addDrawingObject(
+        sim.drawing_lines,
+        3,
+        0.0,
+        -1,
+        len(path_sequence) * 2,
+        [0.2, 0.6, 1.0]
+    )
 
-for index in index_to_point:
-    x, y = index_to_point[index]
-    x_centered = (x - mean_x) * SCALE_FACTOR
-    y_centered = (y - mean_y) * SCALE_FACTOR
-    index_to_point[index] = (x_centered, y_centered)
+    for i in range(len(path_sequence) - 1):
+        a = path_sequence[i]
+        b = path_sequence[i + 1]
+        x1, y1 = index_to_point[a]
+        x2, y2 = index_to_point[b]
+        sim.addDrawingObjectItem(line_handle, [x1, y1, SPHERE_HEIGHT, x2, y2, SPHERE_HEIGHT])
 
-entry_x, entry_y = entry_point
-entry_point = ((entry_x - mean_x) * SCALE_FACTOR, (entry_y - mean_y) * SCALE_FACTOR)
+def draw_path_points(sim, index_to_point, agent_indices):
+    for index, (x, y) in index_to_point.items():
+        z = SPHERE_HEIGHT
+        size = 0.03 if index not in agent_indices else 0.05
+        color = [0.6, 0.6, 0.6] if index not in agent_indices else [1.0, 0.0, 0.0]
 
-# ───── Visualize Path as Connecting Lines ─────
-line_handle = sim.addDrawingObject(
-    sim.drawing_lines,
-    3,
-    0.0,
-    -1,
-    len(path_sequence)*2,
-    [0.2, 0.6, 1.0]
-)
-
-for i in range(len(path_sequence) - 1):
-    a = path_sequence[i]
-    b = path_sequence[i + 1]
-    x1, y1 = index_to_point[a]
-    x2, y2 = index_to_point[b]
-    sim.addDrawingObjectItem(line_handle, [x1, y1, SPHERE_HEIGHT, x2, y2, SPHERE_HEIGHT])
-
-# ───── Visualize Agent & Turn Points ─────
-for index in path_sequence:
-    x, y = index_to_point[index]
-    z = SPHERE_HEIGHT
-
-    if index in agent_indices:
-        sphere = sim.createPrimitiveShape(1, [0.05, 0.05, 0.05])
+        sphere = sim.createPrimitiveShape(1, [size, size, size])
         sim.setObjectPosition(sphere, -1, [x, y, z])
-        sim.setShapeColor(sphere, None, sim.colorcomponent_ambient_diffuse, [1, 0, 0])
-        sim.setObjectAlias(sphere, f"AgentPoint_{index}")
-    else:
-        sphere = sim.createPrimitiveShape(1, [0.03, 0.03, 0.03])
-        sim.setObjectPosition(sphere, -1, [x, y, z])
-        sim.setShapeColor(sphere, None, sim.colorcomponent_ambient_diffuse, [0.6, 0.6, 0.6])
-        sim.setObjectAlias(sphere, f"TurnPoint_{index}")
+        sim.setShapeColor(sphere, None, sim.colorcomponent_ambient_diffuse, color)
+        sim.setObjectAlias(sphere, f"Point_{index}")
 
-# ───── Sort agents by proximity to entry ─────
-agent_indices = sorted(agent_indices, key=lambda i: hypot(
-    index_to_point[i][0] - entry_point[0],
-    index_to_point[i][1] - entry_point[1]
-))
+def scale_drone(sim, drone_handle, scale_factor=0.3):
+    # Get all shapes inside the drone model
+    shapes = sim.getObjectsInTree(drone_handle, sim.object_shape_type, 0)
 
-# ───── Spawn Drones at Entry Point ─────
-spawned_drones = []
-num_drones = len(agent_indices)  # one drone per agent point
+    for shape in shapes:
+        size = sim.getObjectFloatParam(shape, sim.objfloatparam_objbbox_max_x) - sim.getObjectFloatParam(shape, sim.objfloatparam_objbbox_min_x)
+        if size == 0:
+            continue  # skip empty objects
+        sim.scaleObject(shape, scale_factor, scale_factor, scale_factor, 0)
 
-for i in range(num_drones):
-    drone = sim.loadModel(model_path)
-    sim.setObjectPosition(drone, -1, [entry_point[0], entry_point[1], 1.0])
-    sim.setObjectAlias(drone, f"Agent_{i+1}")
+def spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point):
+    drones = []
+    targets = []
+    drone_start_positions = []
 
-    for shape in sim.getObjectsInTree(drone, sim.object_shape_type):
-        sim.setObjectInt32Param(shape, sim.shapeintparam_respondable, 0)
-        sim.scaleObject(shape, 0.5, 0.5, 0.5, 0)
+    x0, y0 = index_to_point[0]
+    x1, y1 = index_to_point[1]
+    dx = x0 - x1
+    dy = y0 - y1
+    length = hypot(dx, dy)
+    if length == 0:
+        raise RuntimeError("❌ Index 0 and Index 1 are the same point!")
 
-    spawned_drones.append(drone)
+    # Normalize direction vector
+    dx /= length
+    dy /= length
 
-print(f"✅ {len(spawned_drones)} drones spawned at entry point.")
+    spacing =0.5  # Distance between drones
+    num_agents = len(agent_indices)
+    for i in range(num_agents):
+        offset = spacing * (num_agents - 1 - i)  # reversed so Agent_1 is at the back
+        start_x = x0 + dx * offset
+        start_y = y0 + dy * offset
+        drone_start_positions.append((start_x, start_y))
 
-# ───── Wait for Simulation to Start ─────
-print("⏳ Waiting for simulation to start...")
-while sim.getSimulationState() == sim.simulation_stopped:
-    time.sleep(0.1)
-print("▶️ Simulation started.")
+        drone = sim.loadModel(DRONE_MODEL_PATH)
+        sim.setObjectPosition(drone, -1, [start_x, start_y, DRONE_ALTITUDE])
+        sim.setObjectAlias(drone, f"Agent_{i}")
 
-# ───── Log Setup ─────
-os.makedirs(os.path.dirname(DEBUG_LOG), exist_ok=True)
-with open(DEBUG_LOG, "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Time", "Agent", "X", "Y", "Z", "Status"])
+        for shape in sim.getObjectsInTree(drone, sim.object_shape_type):
+            sim.setObjectInt32Param(shape, sim.shapeintparam_respondable, 0)
 
-# ───── Coordinated Agent Movement Along Path ─────
-last_agent = spawned_drones[-1]
-sim.setObjectPosition(last_agent, -1, [entry_point[0], entry_point[1], 1.0])
-print(f"📍 Last agent left at start (Index 0) as Agent_{len(spawned_drones)}")
+        scale_drone(sim, drone)
 
-moving_drones = spawned_drones[:-1]
+        all_objects = sim.getObjectsInTree(drone, sim.handle_all, 0)
+        target = next((obj for obj in all_objects if "target" in sim.getObjectAlias(obj).lower()), None)
+        if target is None:
+            raise RuntimeError(f"❌ Could not find target dummy in Agent_{i}")
 
-for i, path_index in enumerate(path_sequence[1:], start=1):  # skip index 0
-    x, y = index_to_point[path_index]
-    z = 1.0
+        drones.append(drone)
+        targets.append(target)
 
-    for drone in moving_drones:
-        current_pos = sim.getObjectPosition(drone, -1)
-        dx = x - current_pos[0]
-        dy = y - current_pos[1]
-        dist = hypot(dx, dy)
-        steps = max(int(dist / 0.05), 1)
+    print(f"🚁 Spawned {len(drones)} drones along the entry vector.")
+    return drones, targets, drone_start_positions
 
-        for step in range(steps):
-            ix = current_pos[0] + dx * (step + 1) / steps
-            iy = current_pos[1] + dy * (step + 1) / steps
-            sim.setObjectPosition(drone, -1, [ix, iy, z])
 
-            with open(DEBUG_LOG, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([f"{time.time():.2f}", sim.getObjectAlias(drone), f"{ix:.2f}", f"{iy:.2f}", z, "moving"])
+def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence, agent_indices, drone_start_positions):
+    z = DRONE_ALTITUDE
+    num_drones = len(drones)
 
-            time.sleep(0.05)
+    agent_to_index = {i: agent_indices[i] for i in range(num_drones)}
 
-    if path_index in agent_indices and path_index != 0 and len(moving_drones) > 0:
-        dropped_drone = moving_drones.pop()
-        sim.setObjectPosition(dropped_drone, -1, [x, y, z])
-        agent_num = spawned_drones.index(dropped_drone) + 1
-        print(f"📍 Dropped Agent_{agent_num} at Index {path_index}")
+    drone_states = []
+    for i in range(num_drones):
+        state = {
+            "drone": drones[i],
+            "target": targets[i],
+            "stop_index": agent_to_index[i],
+            "reached": False,
+            "current_index": 0,
+            "position": list(drone_start_positions[i]),
+        }
+        sim.setObjectPosition(drones[i], -1, [state["position"][0], state["position"][1], z])
+        sim.setObjectPosition(targets[i], -1, [state["position"][0], state["position"][1], z])
+        drone_states.append(state)
 
-        with open(DEBUG_LOG, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([f"{time.time():.2f}", sim.getObjectAlias(dropped_drone), f"{x:.2f}", f"{y:.2f}", z, "dropped"])
+    print("▶️ Simulation started.")
 
-print("🎯 Path complete. All agents placed.")
+    done_count = 0
+    while done_count < num_drones:
+        for state in drone_states:
+            if state["reached"]:
+                continue
+
+            current_idx = state["current_index"]
+            if current_idx >= len(path_sequence) - 1:
+                continue
+
+            a = path_sequence[current_idx]
+            b = path_sequence[current_idx + 1]
+            x1, y1 = index_to_point[a]
+            x2, y2 = index_to_point[b]
+
+            cx, cy = state["position"]
+            dx = x2 - x1
+            dy = y2 - y1
+            segment_length = hypot(dx, dy)
+
+            # Direction of the path segment
+            dir_x = dx / segment_length
+            dir_y = dy / segment_length
+
+            move_step = DRONE_SPEED * STEP_INTERVAL
+            cx += dir_x * move_step
+            cy += dir_y * move_step
+            state["position"] = [cx, cy]
+
+            # Move target
+            state["target_pos"] = [cx, cy, z]
+            sim.setObjectPosition(state["target"], -1, state["target_pos"])
+
+            # Move drone to follow target
+            sim.setObjectPosition(state["drone"], -1, state["target_pos"])
+
+            # Check if passed the stop index
+            stop_idx = state["stop_index"]
+            stop_x, stop_y = index_to_point[stop_idx]
+            if hypot(cx - stop_x, cy - stop_y) < 0.02:
+                sim.setObjectPosition(state["drone"], -1, [stop_x, stop_y, z])
+                sim.setObjectPosition(state["target"], -1, [stop_x, stop_y, z])
+                state["reached"] = True
+                done_count += 1
+                print(f"📍 Dropped Agent_{drone_states.index(state)+1} at Index {stop_idx}")
+
+            # Move to next segment if passed midpoint
+            if hypot(cx - x2, cy - y2) < move_step:
+                state["current_index"] += 1
+
+        time.sleep(STEP_INTERVAL)
+
+    print("🎯 All agents deployed.")
+
+
+def main():
+    csv_path = select_csv_file()
+    index_to_point, path_sequence, agent_indices, entry_point = load_path_from_csv(csv_path)
+    index_to_point, entry_point = center_and_scale(index_to_point, entry_point)
+
+    client = RemoteAPIClient()
+    sim = client.getObject("sim")
+
+    cleanup_scene(sim)
+    draw_path(sim, index_to_point, path_sequence)
+    draw_path_points(sim, index_to_point, agent_indices)
+
+    drones, targets, drone_start_positions = spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point)
+
+    print("⏳ Waiting for simulation to start...")
+    while sim.getSimulationState() == sim.simulation_stopped:
+        time.sleep(0.1)
+
+    print("▶️ Simulation started.")
+    move_targets_along_path(sim, drones, targets, index_to_point, path_sequence, agent_indices, drone_start_positions)
+    print("🎯 All agents deployed.")
+
+if __name__ == "__main__":
+    main()
