@@ -1,7 +1,7 @@
 import csv
 import tkinter as tk
 from tkinter import filedialog
-from math import hypot
+from math import hypot, sin, pi, cos
 import time
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
@@ -57,8 +57,6 @@ def load_path_from_csv(file_path):
 
     return index_to_point, path_sequence, agent_indices, entry_point, type_map
 
-
-
 def center_and_scale(index_to_point, entry_point):
     xs = [pt[0] for pt in index_to_point.values()]
     ys = [pt[1] for pt in index_to_point.values()]
@@ -104,11 +102,9 @@ def draw_path_points(sim, index_to_point, type_map):
         label, cross_type = type_map.get(index, ("", ""))
         z = SPHERE_HEIGHT
 
-        # === Skip turn points (no visual) ===
         if label == "turn":
             continue
 
-        # === Determine color ===
         if label == "agent":
             color = [1.0, 0.0, 0.0]  # red
             size = 0.05
@@ -119,22 +115,19 @@ def draw_path_points(sim, index_to_point, type_map):
             color = [0.0, 0.8, 0.0]  # green
             size = 0.035
         else:
-            continue  # unhandled type
+            continue
 
-        # === Draw sphere ===
         sphere = sim.createPrimitiveShape(1, [size, size, size])
         sim.setObjectPosition(sphere, -1, [x, y, z])
         sim.setShapeColor(sphere, None, sim.colorcomponent_ambient_diffuse, color)
         sim.setObjectAlias(sphere, f"Point_{index}")
 
 def scale_drone(sim, drone_handle, scale_factor=1):
-    # Get all shapes inside the drone model
     shapes = sim.getObjectsInTree(drone_handle, sim.object_shape_type, 0)
-
     for shape in shapes:
         size = sim.getObjectFloatParam(shape, sim.objfloatparam_objbbox_max_x) - sim.getObjectFloatParam(shape, sim.objfloatparam_objbbox_min_x)
         if size == 0:
-            continue  # skip empty objects
+            continue
         sim.scaleObject(shape, scale_factor, scale_factor, scale_factor, 0)
 
 def spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point):
@@ -150,14 +143,12 @@ def spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point):
     if length == 0:
         raise RuntimeError("❌ Index 0 and Index 1 are the same point!")
 
-    # Normalize direction vector
     dx /= length
     dy /= length
-
-    spacing =0.5  # Distance between drones
+    spacing = 0.5
     num_agents = len(agent_indices)
     for i in range(num_agents):
-        offset = spacing * (num_agents - 1 - i)  # reversed so Agent_1 is at the back
+        offset = spacing * (num_agents - 1 - i)
         start_x = x0 + dx * offset
         start_y = y0 + dy * offset
         drone_start_positions.append((start_x, start_y))
@@ -181,31 +172,41 @@ def spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point):
 
     print(f"🚁 Spawned {len(drones)} drones along the entry vector.")
     return drones, targets, drone_start_positions
-
-
 def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence, agent_indices, drone_start_positions):
-    z = DRONE_ALTITUDE
+    z_base = DRONE_ALTITUDE
+    arc_radius = 0.5     # arc width before and after crossing
+    amplitude = 0.3      # max height up/down
+
+    # Collect crossing point positions and their type
+    crossings = []
+    for idx, (label, cross_type) in type_map.items():
+        if label == "crossing":
+            crossings.append({
+                "index": idx,
+                "pos": index_to_point[idx],
+                "type": cross_type
+            })
+
     num_drones = len(drones)
-
-    agent_to_index = {i: agent_indices[i] for i in range(num_drones)}
-
     drone_states = []
+
     for i in range(num_drones):
+        stop_index = agent_indices[i] if i < len(agent_indices) else path_sequence[-1]
         state = {
             "drone": drones[i],
             "target": targets[i],
-            "stop_index": agent_to_index[i],
+            "stop_index": stop_index,
             "reached": False,
             "current_index": 0,
             "position": list(drone_start_positions[i]),
+            "index": i
         }
-        sim.setObjectPosition(drones[i], -1, [state["position"][0], state["position"][1], z])
-        sim.setObjectPosition(targets[i], -1, [state["position"][0], state["position"][1], z])
+        sim.setObjectPosition(targets[i], -1, [*state["position"], z_base])
         drone_states.append(state)
 
     print("▶️ Simulation started.")
-
     done_count = 0
+
     while done_count < num_drones:
         for state in drone_states:
             if state["reached"]:
@@ -213,6 +214,8 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
 
             current_idx = state["current_index"]
             if current_idx >= len(path_sequence) - 1:
+                state["reached"] = True
+                done_count += 1
                 continue
 
             a = path_sequence[current_idx]
@@ -225,33 +228,48 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
             dy = y2 - y1
             segment_length = hypot(dx, dy)
 
-            # Direction of the path segment
+            if segment_length == 0:
+                state["current_index"] += 1
+                continue
+
             dir_x = dx / segment_length
             dir_y = dy / segment_length
-
             move_step = DRONE_SPEED * STEP_INTERVAL
             cx += dir_x * move_step
             cy += dir_y * move_step
             state["position"] = [cx, cy]
 
-            # Move target
-            state["target_pos"] = [cx, cy, z]
-            sim.setObjectPosition(state["target"], -1, state["target_pos"])
+            # ───── Altitude calculation with full crossing arc ─────
+            z_arc = z_base
+            for cross in crossings:
+                bx, by = cross["pos"]
+                dist_to_cross = hypot(cx - bx, cy - by)
+                if dist_to_cross <= arc_radius:
+                    # progress: -1 at start, 0 at crossing, +1 at end
+                    progress = (cx - bx) * dir_x + (cy - by) * dir_y
+                    progress = progress / arc_radius
+                    if abs(progress) <= 1.0:
+                        arc_phase = (progress + 1) * pi / 2  # map [-1,1] to [0, pi]
+                        offset = amplitude * sin(arc_phase)
+                        if cross["type"] == "crossing-over":
+                            z_arc = z_base + offset
+                        elif cross["type"] == "crossing-under":
+                            z_arc = z_base - offset
+                        break  # only apply the closest/first arc zone
 
-            # Move drone to follow target
-            sim.setObjectPosition(state["drone"], -1, state["target_pos"])
+            # Set new position
+            sim.setObjectPosition(state["target"], -1, [cx, cy, z_arc])
 
-            # Check if passed the stop index
+            # Stop condition
             stop_idx = state["stop_index"]
             stop_x, stop_y = index_to_point[stop_idx]
             if hypot(cx - stop_x, cy - stop_y) < 0.02:
-                sim.setObjectPosition(state["drone"], -1, [stop_x, stop_y, z])
-                sim.setObjectPosition(state["target"], -1, [stop_x, stop_y, z])
+                sim.setObjectPosition(state["target"], -1, [stop_x, stop_y, z_base])
                 state["reached"] = True
                 done_count += 1
-                print(f"📍 Dropped Agent_{drone_states.index(state)+1} at Index {stop_idx}")
+                print(f"📍 Dropped Agent_{state['index']} at Index {stop_idx}")
 
-            # Move to next segment if passed midpoint
+            # Advance path segment if near end
             if hypot(cx - x2, cy - y2) < move_step:
                 state["current_index"] += 1
 
@@ -262,7 +280,9 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
 
 def main():
     csv_path = select_csv_file()
-    index_to_point, path_sequence, agent_indices, entry_point, type_map = load_path_from_csv(csv_path)
+    index_to_point, path_sequence, agent_indices, entry_point, type_map_loaded = load_path_from_csv(csv_path)
+    global type_map
+    type_map = type_map_loaded
 
     index_to_point, entry_point = center_and_scale(index_to_point, entry_point)
 
