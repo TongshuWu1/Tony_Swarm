@@ -174,18 +174,17 @@ def spawn_drones_along_line(sim, index_to_point, agent_indices, entry_point):
     return drones, targets, drone_start_positions
 def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence, agent_indices, drone_start_positions):
     z_base = DRONE_ALTITUDE
-    arc_radius = 0.5     # arc width before and after crossing
-    amplitude = 0.3      # max height up/down
+    base_arc_radius = 0.5   # desired half-width of the arc along the segment
+    amplitude = 0.3         # peak climb (over) / dive (under) at the crossing center
 
-    # Collect crossing point positions and their type
-    crossings = []
+    # Map each crossing index -> {pos, type}
+    crossings = {}
     for idx, (label, cross_type) in type_map.items():
         if label == "crossing":
-            crossings.append({
-                "index": idx,
+            crossings[idx] = {
                 "pos": index_to_point[idx],
-                "type": cross_type
-            })
+                "type": cross_type,  # "crossing-over" or "crossing-under"
+            }
 
     num_drones = len(drones)
     drone_states = []
@@ -197,7 +196,7 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
             "target": targets[i],
             "stop_index": stop_index,
             "reached": False,
-            "current_index": 0,
+            "current_index": 0,          # segment = path_sequence[current_index] -> next
             "position": list(drone_start_positions[i]),
             "index": i
         }
@@ -226,41 +225,78 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
             cx, cy = state["position"]
             dx = x2 - x1
             dy = y2 - y1
-            segment_length = hypot(dx, dy)
-
-            if segment_length == 0:
+            seg_len = hypot(dx, dy)
+            if seg_len == 0:
                 state["current_index"] += 1
                 continue
 
-            dir_x = dx / segment_length
-            dir_y = dy / segment_length
+            dir_x = dx / seg_len
+            dir_y = dy / seg_len
+
+            # Move along the segment
             move_step = DRONE_SPEED * STEP_INTERVAL
-            cx += dir_x * move_step
-            cy += dir_y * move_step
+            # If we’re very close to the end, clamp this step to avoid overshoot jitter
+            to_end = hypot((x2 - cx), (y2 - cy))
+            step = min(move_step, to_end)
+            cx += dir_x * step
+            cy += dir_y * step
             state["position"] = [cx, cy]
 
-            # ───── Altitude calculation with full crossing arc ─────
+            # ───── Altitude calculation: ONLY when this segment touches a crossing ─────
             z_arc = z_base
-            for cross in crossings:
-                bx, by = cross["pos"]
-                dist_to_cross = hypot(cx - bx, cy - by)
-                if dist_to_cross <= arc_radius:
-                    # progress: -1 at start, 0 at crossing, +1 at end
-                    progress = (cx - bx) * dir_x + (cy - by) * dir_y
-                    progress = progress / arc_radius
-                    if abs(progress) <= 1.0:
-                        arc_phase = (progress + 1) * pi / 2  # map [-1,1] to [0, pi]
-                        offset = amplitude * sin(arc_phase)
-                        if cross["type"] == "crossing-over":
-                            z_arc = z_base + offset
-                        elif cross["type"] == "crossing-under":
-                            z_arc = z_base - offset
-                        break  # only apply the closest/first arc zone
 
-            # Set new position
+            # Identify if this segment is adjacent to a crossing index
+            candidates = []
+            if a in crossings:
+                candidates.append(("at_a", a, crossings[a]))
+            if b in crossings:
+                candidates.append(("at_b", b, crossings[b]))
+
+            if candidates:
+                # Use the closest applicable crossing on this segment (usually just one)
+                best = None
+                best_abs_s = None
+
+                for where, cross_idx, meta in candidates:
+                    (bx, by) = meta["pos"]
+
+                    # Direction pointing *away* from the crossing along this segment
+                    # so that s<0 is "before", s=0 at crossing, s>0 "after".
+                    if where == "at_a":
+                        dir_from_cross_x = dir_x
+                        dir_from_cross_y = dir_y
+                    else:  # where == "at_b"
+                        dir_from_cross_x = -dir_x
+                        dir_from_cross_y = -dir_y
+
+                    # Signed distance along the segment from the crossing to current pos.
+                    s = (cx - bx) * dir_from_cross_x + (cy - by) * dir_from_cross_y
+
+                    # Limit arc half-width so it fits within the segment neatly.
+                    arc_radius = min(base_arc_radius, 0.45 * seg_len)
+
+                    if -arc_radius <= s <= arc_radius:
+                        # Map s in [-R, R] to a smooth arch: 0 at edges, max at s=0
+                        u = max(-1.0, min(1.0, s / arc_radius))
+                        phase = (u + 1.0) * pi * 0.5           # [-1,1] -> [0, π]
+                        offset = amplitude * sin(phase)        # 0→max→0
+
+                        # Choose nearest crossing on this segment if two exist (rare)
+                        if (best is None) or (abs(s) < best_abs_s):
+                            best = (meta["type"], offset)
+                            best_abs_s = abs(s)
+
+                if best is not None:
+                    cross_type, offset = best
+                    if cross_type == "crossing-over":
+                        z_arc = z_base + offset
+                    elif cross_type == "crossing-under":
+                        z_arc = z_base - offset
+
+            # Apply new target position
             sim.setObjectPosition(state["target"], -1, [cx, cy, z_arc])
 
-            # Stop condition
+            # Stop this drone at its assigned agent index
             stop_idx = state["stop_index"]
             stop_x, stop_y = index_to_point[stop_idx]
             if hypot(cx - stop_x, cy - stop_y) < 0.02:
@@ -269,13 +305,14 @@ def move_targets_along_path(sim, drones, targets, index_to_point, path_sequence,
                 done_count += 1
                 print(f"📍 Dropped Agent_{state['index']} at Index {stop_idx}")
 
-            # Advance path segment if near end
-            if hypot(cx - x2, cy - y2) < move_step:
+            # Advance to next segment when we reach the end of the current one
+            if hypot(cx - x2, cy - y2) < 1e-4:
                 state["current_index"] += 1
 
         time.sleep(STEP_INTERVAL)
 
     print("🎯 All agents deployed.")
+
 
 
 def main():
