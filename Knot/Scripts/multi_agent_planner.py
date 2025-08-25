@@ -9,7 +9,13 @@ from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 PIXEL_TO_METER = 0.01
 SCALE_FACTOR = 2.0
 SPHERE_HEIGHT = 0.05
-DRONE_MODEL_PATH = "models/robots/mobile/Quadcopter.ttm"
+
+# For windows path
+# DRONE_MODEL_PATH = "models/robots/mobile/Quadcopter.ttm"
+
+# For macos path
+DRONE_MODEL_PATH = "/Applications/coppeliaSim.app/Contents/Resources/models/robots/mobile/Quadcopter.ttm"
+
 
 DRONE_SPEED = 0.5        # meters per second
 STEP_INTERVAL = 0.05     # seconds per simulation step

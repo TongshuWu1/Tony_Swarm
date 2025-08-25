@@ -23,8 +23,6 @@ class KnotSegment:
         self.gap_at = []
 
 
-
-
 def compute_crossings_from_points(points, segments):
     crossings = {}
     for i, seg1 in enumerate(segments):
@@ -76,7 +74,7 @@ class ShapelyGUI:
         self.frozen_intermediates = set()
         self.equilibrium_distances = {}
 
-        self.convergence_skip_frames =5
+        self.convergence_skip_frames = 5
         self.frames_since_segment_start = 10
 
         self.converged_counter = 0
@@ -84,51 +82,15 @@ class ShapelyGUI:
         self.converged_steps_required = 10
 
         self.avg_speed_buffer = []
-        self.avg_speed_window_size = 7  # or 15
+        self.avg_speed_window_size = 7
 
-        self.obstacles = []  # List of (center, radius)
-        self.selected_obstacle_idx = None  # For dragging center
+        self.obstacles = []
+        self.selected_obstacle_idx = None
 
-        self.prev_force_dirs = [np.zeros(2, dtype=float) for _ in range(len(self.points))]
+        self.prev_force_dirs = [
+            np.zeros(2, dtype=float) for _ in range(len(self.points))
+        ]
         self.vibrate_count = [0 for _ in range(len(self.points))]
-
-        param_frame = tk.Frame(parent)
-        param_frame.pack()
-
-        def add_param(row, label, entry_attr, default):
-            tk.Label(param_frame, text=label).grid(row=row, column=0, sticky='w')
-            entry = tk.Entry(param_frame, width=8)
-            entry.insert(0, str(default))
-            entry.grid(row=row, column=1)
-            setattr(self, entry_attr, entry)
-
-        add_param(0, "Spring (k)", "k_entry", 0.04)
-        add_param(1, "Damping (c)", "c_entry", 0.04)
-        add_param(2, "Mass (m)", "m_entry", 0.4)
-        add_param(3, "Time Step (dt)", "dt_entry", 0.4)
-        add_param(4, "Straighten", "straighten_force_entry", 1.5)
-        add_param(5, "Repel Strength", "repulsion_entry", 4.0)
-        add_param(6, "Min Dist", "min_dist_entry", 30.0)
-        add_param(7, "Locked Mult", "locked_repel_multiplier_entry", 10.0)
-        add_param(8, "Conv Thresh", "conv_thresh_entry", 0.0001)
-        add_param(9, "Conv Frames", "conv_steps_entry", 12)
-
-        self.set_btn = tk.Button(parent, text="Set Physics", command=self.update_physics_constants)
-        self.set_btn.pack()
-
-        self.toggle_btn = tk.Button(parent, text="Toggle Waypoints", command=self.redraw)
-        self.toggle_btn.pack()
-        self.next_btn = tk.Button(parent, text="Next Segment", command=self.next_segment)
-        self.next_btn.pack()
-
-        self.add_obstacle_btn = tk.Button(parent, text="Add Obstacle", command=self.add_obstacle)
-        self.add_obstacle_btn.pack()
-
-        tk.Label(param_frame, text="Obstacle Radius").grid(row=10, column=0, sticky='w')
-        self.obstacle_radius_slider = tk.Scale(param_frame, from_=10, to=200, orient='horizontal',
-                                               command=self.update_obstacle_radius)
-        self.obstacle_radius_slider.set(50)
-        self.obstacle_radius_slider.grid(row=10, column=1)
 
         self.radius = 50
         self.straighten_step = 0
@@ -138,18 +100,89 @@ class ShapelyGUI:
         self.canvas.bind("<B1-Motion>", self.on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_drag_end)
 
+        # Compact param container
+        param_container = tk.LabelFrame(
+            parent, text="Physics Parameters", padx=5, pady=5
+        )
+        param_container.pack(padx=10, pady=5)
+
+        param_frame = tk.Frame(param_container)
+        param_frame.pack()
+
+        param_labels = [
+            ("Spring (k)", "k_entry", 0.04),
+            ("Damping (c)", "c_entry", 0.04),
+            ("Mass (m)", "m_entry", 0.4),
+            ("Time Step (dt)", "dt_entry", 0.4),
+            ("Straighten", "straighten_force_entry", 1.5),
+            ("Repel Strength", "repulsion_entry", 4.0),
+            ("Min Dist", "min_dist_entry", 30.0),
+            ("Locked Mult", "locked_repel_multiplier_entry", 10.0),
+            ("Conv Thresh", "conv_thresh_entry", 0.0001),
+            ("Conv Frames", "conv_steps_entry", 12),
+        ]
+
+        for idx, (label, attr, default) in enumerate(param_labels):
+            row, col = divmod(idx, 2)
+            tk.Label(param_frame, text=label).grid(row=row, column=col * 2, sticky="w")
+            entry = tk.Entry(param_frame, width=6)
+            entry.insert(0, str(default))
+            entry.grid(row=row, column=col * 2 + 1)
+            setattr(self, attr, entry)
+
+        # Obstacle radius slider (horizontal, compact)
+        slider_frame = tk.Frame(param_container)
+        slider_frame.pack(pady=(4, 0))
+        tk.Label(slider_frame, text="Obstacle Radius").pack(side="left")
+        self.obstacle_radius_slider = tk.Scale(
+            slider_frame,
+            from_=10,
+            to=200,
+            orient="horizontal",
+            command=self.update_obstacle_radius,
+            length=150,
+        )
+        self.obstacle_radius_slider.set(50)
+        self.obstacle_radius_slider.pack(side="left")
+
+        button_frame = tk.Frame(parent)
+        button_frame.pack(pady=4)
+
+        self.set_btn = tk.Button(
+            button_frame, text="Set", width=10, command=self.update_physics_constants
+        )
+        self.set_btn.grid(row=0, column=0, padx=2, pady=2)
+
+        self.toggle_btn = tk.Button(
+            button_frame, text="Toggle Waypoints", width=15, command=self.redraw
+        )
+        self.toggle_btn.grid(row=0, column=1, padx=2, pady=2)
+
+        self.next_btn = tk.Button(
+            button_frame, text="Next", width=8, command=self.next_segment
+        )
+        self.next_btn.grid(row=0, column=2, padx=2, pady=2)
+
+        self.add_obstacle_btn = tk.Button(
+            button_frame, text="Add Obstacle", width=15, command=self.add_obstacle
+        )
+        self.add_obstacle_btn.grid(row=1, column=0, padx=2, pady=2)
+
         self.auto_converge = tk.BooleanVar(value=True)
         self.auto_converge_check = tk.Checkbutton(
-            parent, text="Auto-Converge", variable=self.auto_converge
+            button_frame, text="Auto-Converge", variable=self.auto_converge
         )
-        self.auto_converge_check.pack()
+        self.auto_converge_check.grid(row=1, column=1, padx=2, pady=2)
 
-        self.start_btn = tk.Button(parent, text="Start Physics", command=self.start_physics)
+        self.start_btn = tk.Button(
+            button_frame, text="Start Physics", width=15, command=self.start_physics
+        )
+        self.start_btn.grid(row=2, column=0, padx=2, pady=2)
 
-        self.start_btn.pack()
-
-        self.save_btn = tk.Button(parent, text="Save Path Info", command=self.save_path_info)
-        self.save_btn.pack()
+        self.save_btn = tk.Button(
+            button_frame, text="Save Path", width=15, command=self.save_path_info
+        )
+        self.save_btn.grid(row=2, column=1, padx=2, pady=2)
 
         self.update_physics_constants()
 
@@ -181,14 +214,16 @@ class ShapelyGUI:
         filepath = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            title="Save Full Path with Crossings"
+            title="Save Full Path with Crossings",
         )
         if not filepath:
             return
 
         def find_segment(p1_id, p2_id):
             for s in self.segments:
-                if (s.p1 == p1_id and s.p2 == p2_id) or (s.p1 == p2_id and s.p2 == p1_id):
+                if (s.p1 == p1_id and s.p2 == p2_id) or (
+                    s.p1 == p2_id and s.p2 == p1_id
+                ):
                     return s
             return None
 
@@ -212,7 +247,9 @@ class ShapelyGUI:
                         idx_a, idx_b = idx_b, idx_a
                     full_path_ids.extend(path_ids[idx_a:idx_b])
                 full_path_ids.append(self.ordered_indices[-1])
-                full_path_ids = list(dict.fromkeys(full_path_ids))  # remove duplicates, preserve order
+                full_path_ids = list(
+                    dict.fromkeys(full_path_ids)
+                )  # remove duplicates, preserve order
 
                 for i in range(len(full_path_ids) - 1):
                     id_a = full_path_ids[i]
@@ -229,7 +266,9 @@ class ShapelyGUI:
                     if id_a not in written:
                         x, y = pt_a.pos
                         point_type = "Agent" if pt_a.is_agent else "Turn"
-                        writer.writerow([pt_a.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"])
+                        writer.writerow(
+                            [pt_a.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"]
+                        )
                         written.add(id_a)
 
                     # Insert crossings with prior segments
@@ -237,23 +276,36 @@ class ShapelyGUI:
                     for other in self.segments:
                         if other.id >= seg.id:
                             continue  # only earlier segments
-                        other_line = LineString([
-                            self.points[other.p1].pos,
-                            self.points[other.p2].pos
-                        ])
+                        other_line = LineString(
+                            [self.points[other.p1].pos, self.points[other.p2].pos]
+                        )
                         if curr_line.crosses(other_line):
                             pt = curr_line.intersection(other_line)
                             if pt.geom_type == "Point":
                                 x, y = pt.coords[0]
-                                cross_type = "Crossing-Over" if seg.is_overpass else "Crossing-Under"
-                                writer.writerow([next_index, f"{x:.2f}", f"{y:.2f}", "Crossing", cross_type])
+                                cross_type = (
+                                    "Crossing-Over"
+                                    if seg.is_overpass
+                                    else "Crossing-Under"
+                                )
+                                writer.writerow(
+                                    [
+                                        next_index,
+                                        f"{x:.2f}",
+                                        f"{y:.2f}",
+                                        "Crossing",
+                                        cross_type,
+                                    ]
+                                )
                                 next_index += 1
 
                     # Write point B
                     if id_b not in written:
                         x, y = pt_b.pos
                         point_type = "Agent" if pt_b.is_agent else "Turn"
-                        writer.writerow([pt_b.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"])
+                        writer.writerow(
+                            [pt_b.id, f"{x:.2f}", f"{y:.2f}", point_type, "Straight"]
+                        )
                         written.add(id_b)
 
             print(f"✅ Full path (all points + crossings) saved to {filepath}")
@@ -269,7 +321,9 @@ class ShapelyGUI:
             self.straighten_force = float(self.straighten_force_entry.get())
             self.repulsion_strength = float(self.repulsion_entry.get())
             self.min_dist_threshold = float(self.min_dist_entry.get())
-            self.locked_repel_multiplier = float(self.locked_repel_multiplier_entry.get())
+            self.locked_repel_multiplier = float(
+                self.locked_repel_multiplier_entry.get()
+            )
             self.convergence_threshold = float(self.conv_thresh_entry.get())
             self.converged_steps_required = int(self.conv_steps_entry.get())
 
@@ -332,7 +386,9 @@ class ShapelyGUI:
         old_pos = self.original_positions[idx]
         self.points[idx].pos = (e.x, e.y)
 
-        ok, msg = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
+        ok, msg = check_crossing_structure_equivalence(
+            self.points, self.segments, self.initial_crossings
+        )
         if not ok:
             print(f"❌ Reverting drag of point {idx}: {msg}")
             self.points[idx].pos = old_pos
@@ -342,7 +398,7 @@ class ShapelyGUI:
         self.redraw()
 
     def add_obstacle(self):
-        x, y = int(self.canvas['width']) // 2, int(self.canvas['height']) // 2
+        x, y = int(self.canvas["width"]) // 2, int(self.canvas["height"]) // 2
         r = self.obstacle_radius_slider.get()
         self.obstacles.append(((x, y), r))
         self.selected_obstacle_idx = len(self.obstacles) - 1
@@ -358,7 +414,7 @@ class ShapelyGUI:
         if self.physics_running:
             return
         self.physics_running = True
-        self.start_btn.config(state='disabled')
+        self.start_btn.config(state="disabled")
         print("▶️ Starting physics loop")
         self.run_physics()
 
@@ -392,7 +448,7 @@ class ShapelyGUI:
                 end_idx = path_ids.index(i2)
                 if start_idx > end_idx:
                     start_idx, end_idx = end_idx, start_idx
-                active_intermediates = set(path_ids[start_idx + 1:end_idx])
+                active_intermediates = set(path_ids[start_idx + 1 : end_idx])
 
             force_map = {i: np.zeros(2, dtype=float) for i in range(len(self.points))}
 
@@ -415,7 +471,10 @@ class ShapelyGUI:
                     v_rel = np.dot(dv, direction)
                     f_damp = c * v_rel * direction
                     f_total = f_spring + f_damp
-                    if i not in self.locked_indices and i not in self.manual_locked_indices:
+                    if (
+                        i not in self.locked_indices
+                        and i not in self.manual_locked_indices
+                    ):
                         force_map[i] += f_total
 
             if self.straighten_step + 1 < len(self.ordered_indices):
@@ -442,7 +501,7 @@ class ShapelyGUI:
                     if dist < radius:
                         repel_dir = normalize(disp)
                         delta = min((radius - dist) / radius, 1.0)
-                        strength = 300.0 * (delta ** 2)
+                        strength = 300.0 * (delta**2)
                         if dist < radius * 0.7:
                             strength *= 8
                         elif dist < radius * 0.4:
@@ -469,7 +528,7 @@ class ShapelyGUI:
                         if dist < radius:
                             repel_dir = disp / (dist + 1e-5)
                             delta = min((radius - dist) / radius, 1.0)
-                            strength = 200.0 * (delta ** 2)
+                            strength = 200.0 * (delta**2)
                             force = repel_dir * strength
 
                             # Distribute force to endpoints
@@ -496,9 +555,18 @@ class ShapelyGUI:
                         dist = 1e-5
                     if dist < min_dist_threshold:
                         repel_dir = normalize(disp)
-                        delta = min((min_dist_threshold - dist) / min_dist_threshold, 0.5)
-                        repel_mag = repulsion_strength * (
-                            locked_repel_multiplier if i in self.locked_indices else 1.0) * (delta ** 2)
+                        delta = min(
+                            (min_dist_threshold - dist) / min_dist_threshold, 0.5
+                        )
+                        repel_mag = (
+                            repulsion_strength
+                            * (
+                                locked_repel_multiplier
+                                if i in self.locked_indices
+                                else 1.0
+                            )
+                            * (delta**2)
+                        )
                         repel_force = repel_dir * repel_mag
                         force_map[i] -= repel_force
                         force_map[seg.p1] += 0.5 * repel_force
@@ -524,7 +592,9 @@ class ShapelyGUI:
                         self.velocities[i] = np.zeros(2)
                         self.frozen_intermediates.add(i)
                     else:
-                        print(f"🛑 Skipping freeze for point {i} — still inside obstacle")
+                        print(
+                            f"🛑 Skipping freeze for point {i} — still inside obstacle"
+                        )
                     continue
 
                 self.prev_force_dirs[i] = f_now
@@ -538,7 +608,9 @@ class ShapelyGUI:
 
                 # Allow movement for locked/frozen if force is strong enough (esp. obstacle repulsion)
                 is_repel_escape = force_norm > 50.0
-                if (i in self.locked_indices or i in self.frozen_intermediates) and not is_repel_escape:
+                if (
+                    i in self.locked_indices or i in self.frozen_intermediates
+                ) and not is_repel_escape:
                     continue
 
                 acc = force_map[i] / m
@@ -551,7 +623,9 @@ class ShapelyGUI:
                 new_pos = np.array(pti.pos, dtype=float) + disp
                 old_pos = pti.pos
                 pti.pos = tuple(new_pos)
-                ok, _ = check_crossing_structure_equivalence(self.points, self.segments, self.initial_crossings)
+                ok, _ = check_crossing_structure_equivalence(
+                    self.points, self.segments, self.initial_crossings
+                )
                 if not ok:
                     pti.pos = old_pos
                     self.velocities[i] = np.zeros(2)
@@ -559,7 +633,11 @@ class ShapelyGUI:
             if self.frames_since_segment_start <= self.convergence_skip_frames:
                 pass
             else:
-                intermediates = [i for i in self.manual_locked_indices if i not in self.locked_indices]
+                intermediates = [
+                    i
+                    for i in self.manual_locked_indices
+                    if i not in self.locked_indices
+                ]
                 if not intermediates:
                     self.next_segment()
                     self.converged_counter = 0
@@ -584,18 +662,25 @@ class ShapelyGUI:
                             self.converged_counter = 0
                             self.frames_since_segment_start = 0
                         else:
-                            print("⏸️ Auto-converge disabled — waiting for manual advance.")
+                            print(
+                                "⏸️ Auto-converge disabled — waiting for manual advance."
+                            )
                     else:
                         print("🛑 Obstacle violation — holding segment.")
                 else:
-                    moving_speeds = [np.linalg.norm(self.velocities[i]) for i in intermediates if
-                                     i not in self.frozen_intermediates]
+                    moving_speeds = [
+                        np.linalg.norm(self.velocities[i])
+                        for i in intermediates
+                        if i not in self.frozen_intermediates
+                    ]
                     if not hasattr(self, "avg_speed_buffer"):
                         self.avg_speed_buffer = []
                         self.avg_speed_window_size = 10
                     instant_speed = np.mean(moving_speeds) if moving_speeds else 0.0
                     if instant_speed > 1.0:
-                        print(f"⚠️ Detected speed spike: {instant_speed:.4f} — purging buffer")
+                        print(
+                            f"⚠️ Detected speed spike: {instant_speed:.4f} — purging buffer"
+                        )
                         self.avg_speed_buffer.clear()
                         self.converged_counter = 0
                     else:
@@ -604,7 +689,8 @@ class ShapelyGUI:
                             self.avg_speed_buffer.pop(0)
                         avg_speed = np.mean(self.avg_speed_buffer)
                         print(
-                            f"🔍 Instant speed = {instant_speed:.5f} | Smoothed avg = {avg_speed:.5f} | Stable frames: {self.converged_counter}/{self.converged_steps_required}")
+                            f"🔍 Instant speed = {instant_speed:.5f} | Smoothed avg = {avg_speed:.5f} | Stable frames: {self.converged_counter}/{self.converged_steps_required}"
+                        )
                         if avg_speed < self.convergence_threshold:
                             self.converged_counter += 1
                         else:
@@ -617,8 +703,9 @@ class ShapelyGUI:
                                 self.converged_counter = 0
                                 self.frames_since_segment_start = 0
                             else:
-                                print("⏸️ Auto-converge disabled — waiting for manual advance.")
-
+                                print(
+                                    "⏸️ Auto-converge disabled — waiting for manual advance."
+                                )
 
         except Exception as e:
             print(f"⚠️ Error in physics loop: {e}")
@@ -674,7 +761,10 @@ class ShapelyGUI:
         self.canvas.delete("all")
         curr = set()
         if self.straighten_step + 1 < len(self.ordered_indices):
-            curr = {self.ordered_indices[self.straighten_step], self.ordered_indices[self.straighten_step + 1]}
+            curr = {
+                self.ordered_indices[self.straighten_step],
+                self.ordered_indices[self.straighten_step + 1],
+            }
         elif self.straighten_step < len(self.ordered_indices):
             curr = {self.ordered_indices[self.straighten_step]}
 
@@ -715,8 +805,12 @@ class ShapelyGUI:
                         return
                     dir = vec / length
                     offset = dir * gap_size
-                    self.canvas.create_line(*a, *(pt_coords - offset), fill="black", width=2)
-                    self.canvas.create_line(*(pt_coords + offset), *b, fill="black", width=2)
+                    self.canvas.create_line(
+                        *a, *(pt_coords - offset), fill="black", width=2
+                    )
+                    self.canvas.create_line(
+                        *(pt_coords + offset), *b, fill="black", width=2
+                    )
 
                 if seg1.is_overpass:
                     draw_gapped_segment(p2a, p2b)
@@ -741,35 +835,48 @@ class ShapelyGUI:
                 if pt.is_agent:
                     self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="blue4")
                 else:
-                    self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="cornflowerblue")
+                    self.canvas.create_oval(
+                        x - 6, y - 6, x + 6, y + 6, fill="cornflowerblue"
+                    )
             elif pid in self.manual_locked_indices:
                 self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="skyblue")
             elif pid in curr and pid not in self.locked_indices:
                 self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="gold")
             elif pt.is_agent:
-                self.canvas.create_oval(x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2)
+                self.canvas.create_oval(
+                    x - 6, y - 6, x + 6, y + 6, fill="white", outline="red", width=2
+                )
             else:
                 self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="black")
 
         # === Draw obstacles ===
         for center, radius in self.obstacles:
             cx, cy = center
-            self.canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline="red", width=2)
+            self.canvas.create_oval(
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
+                outline="red",
+                width=2,
+            )
             self.canvas.create_oval(cx - 4, cy - 4, cx + 4, cy + 4, fill="red")
 
     def draw_sections(self, section_list, agent_points_set):
         self.clear()
         path_order = [section_list[0].start]
         for sec in section_list:
-            if sec.end != path_order[-1]:  # avoid duplicate if last end matches previous
+            if (
+                sec.end != path_order[-1]
+            ):  # avoid duplicate if last end matches previous
                 path_order.append(sec.end)
 
         xs = [p[1] for p in path_order]
         ys = [p[0] for p in path_order]
 
         scale = 40
-        canvas_width = int(self.canvas['width'])
-        canvas_height = int(self.canvas['height'])
+        canvas_width = int(self.canvas["width"])
+        canvas_height = int(self.canvas["height"])
 
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
@@ -795,17 +902,23 @@ class ShapelyGUI:
             p1, p2 = id_map[sec.start], id_map[sec.end]
             pair = tuple(sorted((p1, p2)))  # order-independent key
             if pair in existing_seg_pairs:
-                print(f"⚠️ Skipping duplicate segment between {self.points[p1].pos} and {self.points[p2].pos}")
+                print(
+                    f"⚠️ Skipping duplicate segment between {self.points[p1].pos} and {self.points[p2].pos}"
+                )
                 continue
             existing_seg_pairs.add(pair)
-            self.segments.append(KnotSegment(len(self.segments), p1, p2, sec.over_under == 1))
+            self.segments.append(
+                KnotSegment(len(self.segments), p1, p2, sec.over_under == 1)
+            )
 
         # 🔍 Print segment info
         print("📏 Segment List:")
         for seg in self.segments:
             start_pt = self.points[seg.p1].pos
             end_pt = self.points[seg.p2].pos
-            print(f"  Segment {seg.id}: Start {start_pt}, End {end_pt}, Overpass: {seg.is_overpass}")
+            print(
+                f"  Segment {seg.id}: Start {start_pt}, End {end_pt}, Overpass: {seg.is_overpass}"
+            )
 
         self.ordered_indices = [id_map[p] for p in path_order if p in agent_points_set]
 
@@ -822,7 +935,9 @@ class ShapelyGUI:
             self.locked_indices.update({i1, i2})
 
         # Compute segment crossings
-        self.initial_crossings = compute_crossings_from_points(self.points, self.segments)
+        self.initial_crossings = compute_crossings_from_points(
+            self.points, self.segments
+        )
 
         # Insert gap info for underpasses
         for (seg1_id, seg2_id), pt in self.initial_crossings.items():
@@ -865,7 +980,9 @@ if __name__ == "__main__":
     try:
         mat, entry, exit = read_path()
         _, _, _, _, _, secs = compute_agent_reduction(mat, entry, exit)
-        app.full_path_list = _  # ⬅️ This stores the traced path from compute_agent_reduction
+        app.full_path_list = (
+            _  # ⬅️ This stores the traced path from compute_agent_reduction
+        )
         agents = {p.pos_2d() for p in knot_manager.agent_registry.values()}
         app.draw_sections(secs, agents)
 
