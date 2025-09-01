@@ -504,6 +504,16 @@ class Knot_GUI:
             entry = tuple(map(int, entry_text.split(",")))
             exit_ = tuple(map(int, exit_text.split(",")))
 
+            if self.show_matrix_overlay.get():
+                self.draw_grid(matrix, [], {})  # just show numbers
+                self.path_text.delete("1.0", tk.END)
+                self.path_text.insert(tk.END, "[Matrix overlay mode]\n")
+                self.original_points_label.config(text="Total number of turning points: —")
+                self.agents_needed_label.config(text="Total number of agents needed after reduction: —")
+                self.crossing_number_label.config(text="Total number of crossings: —")
+                return
+
+
             path, head, crossNumber, loop_map, agent_registry, sections = (
                 Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             )
@@ -629,22 +639,24 @@ class Knot_GUI:
         canvas_height = rows * self.cell_size
         self.canvas.config(width=canvas_width, height=canvas_height)
 
+
+        overlay_on = self.show_matrix_overlay.get()
+
         for r in range(rows):
             for c in range(cols):
                 x1, y1 = c * self.cell_size, r * self.cell_size
                 x2, y2 = (c + 1) * self.cell_size, (r + 1) * self.cell_size
-                self.canvas.create_rectangle(
-                    x1, y1, x2, y2, outline="gray", fill="white"
-                )
-                self.canvas.create_text(
-                    x2 - 3,
-                    y2 - 3,
-                    anchor="se",
-                    text=f"({r},{c})",
-                    font=("Arial", 7),
-                    fill="gray",
-                )
-                if self.show_matrix_overlay.get():
+
+                self.canvas.create_rectangle(x1, y1, x2, y2, outline="gray", fill="white")
+
+
+                if not overlay_on:
+                    self.canvas.create_text(
+                        x2 - 3, y2 - 3, anchor="se",
+                        text=f"({r},{c})", font=("Arial", 7), fill="gray",
+                    )
+
+                if overlay_on:
                     self.canvas.create_text(
                         x1 + self.cell_size // 2,
                         y1 + self.cell_size // 2,
@@ -653,6 +665,12 @@ class Knot_GUI:
                         tags="overlay",
                     )
 
+        if overlay_on:
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            self.my_canvas.configure(scrollregion=self.my_canvas.bbox("all"))
+            return
+
+        # ===== Below: your existing functionality stays untouched =====
         for r, c, pt_type in path:
             if pt_type == "agent":
                 x = c * self.cell_size + self.cell_size // 2
@@ -707,47 +725,22 @@ class Knot_GUI:
                         gap_start = center_x - gap / 2
                         gap_end = center_x + gap / 2
 
-                        print(
-                            "Drawing horizontal line with gap at row:",
-                            row,
-                            "col:",
-                            col,
-                            "gap_start:",
-                            gap_start,
-                            "gap_end:",
-                            gap_end,
-                        )
+                        print("Drawing horizontal line with gap at row:", row,
+                              "col:", col, "gap_start:", gap_start, "gap_end:", gap_end)
 
-                        # Draw left half line only up to the gap_start
-                        self.canvas.create_line(
-                            cx_last, y, gap_start, y, fill="black", width=4
-                        )
-                        self.canvas.create_line(
-                            cx_last, y, gap_start, y, fill=color, width=2
-                        )
+                        self.canvas.create_line(cx_last, y, gap_start, y, fill="black", width=4)
+                        self.canvas.create_line(cx_last, y, gap_start, y, fill=color, width=2)
 
-                        # Draw right half line starting after the gap_end
-                        self.canvas.create_line(
-                            gap_end, y, cx_next, y, fill="black", width=4
-                        )
-                        self.canvas.create_line(
-                            gap_end, y, cx_next, y, fill=color, width=2
-                        )
-
+                        self.canvas.create_line(gap_end, y, cx_next, y, fill="black", width=4)
+                        self.canvas.create_line(gap_end, y, cx_next, y, fill=color, width=2)
                     else:
-                        self.canvas.create_line(
-                            cx_last, y, cx_next, y, fill="black", width=4
-                        )
-                        self.canvas.create_line(
-                            cx_last, y, cx_next, y, fill=color, width=2
-                        )
+                        self.canvas.create_line(cx_last, y, cx_next, y, fill="black", width=4)
+                        self.canvas.create_line(cx_last, y, cx_next, y, fill=color, width=2)
 
                     cx_last = cx_next
 
             elif c1 == c2:
-                self.canvas.create_line(
-                    x1, y1, x2, y2, fill="black", width=4, arrow=tk.LAST
-                )
+                self.canvas.create_line(x1, y1, x2, y2, fill="black", width=4, arrow=tk.LAST)
                 self.canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
 
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))

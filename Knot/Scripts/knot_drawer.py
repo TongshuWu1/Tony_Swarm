@@ -276,18 +276,16 @@ class ShapelyGUI:
                     for other in self.segments:
                         if other.id >= seg.id:
                             continue  # only earlier segments
-                        other_line = LineString(
-                            [self.points[other.p1].pos, self.points[other.p2].pos]
-                        )
+                        other_line = LineString([self.points[other.p1].pos, self.points[other.p2].pos])
                         if curr_line.crosses(other_line):
                             pt = curr_line.intersection(other_line)
                             if pt.geom_type == "Point":
                                 x, y = pt.coords[0]
-                                cross_type = (
-                                    "Crossing-Over"
-                                    if seg.is_overpass
-                                    else "Crossing-Under"
-                                )
+                                # Patch start: check if this is the last segment
+                                is_last_segment = (i == len(full_path_ids) - 2)
+                                cross_type = "Crossing-Over" if (
+                                            seg.is_overpass or is_last_segment) else "Crossing-Under"
+                                # Patch end
                                 writer.writerow(
                                     [
                                         next_index,
