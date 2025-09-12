@@ -346,8 +346,6 @@ class ShapelyGUI:
 
         # Check if clicked on a movable (non-locked) point
         for pt in self.points:
-            if pt.id in self.locked_indices:
-                continue
             x, y = pt.pos
             if abs(x - e.x) <= 6 and abs(y - e.y) <= 6:
                 self.dragging_point = pt
