@@ -282,7 +282,7 @@ class Simulator:
         return [self.robot_patch, self.uncertainty_ellipse, self.fov_wedge, self.lookahead_line, self.trace_line]
 
     def run(self):
-        ani = FuncAnimation(self.fig, self.update, interval=50, blit=False, frames=500)
+        self.ani = FuncAnimation(self.fig, self.update, interval=50, blit=False)
         plt.show()
 
 if __name__ == "__main__":
