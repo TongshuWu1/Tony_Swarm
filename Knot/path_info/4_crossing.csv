@@ -1,0 +1,17 @@
+Index,X,Y,Type,CrossType
+0,180.00,260.00,Agent,Straight
+1,212.30,308.55,Turn,Straight
+2,260.00,380.00,Agent,Straight
+3,335.28,387.74,Agent,Straight
+4,315.00,304.00,Agent,Straight
+11,227.02,330.60,Crossing,Crossing-Under
+5,186.00,343.00,Turn,Straight
+12,205.29,298.00,Crossing,Crossing-Over
+6,219.00,266.00,Turn,Straight
+7,343.00,273.00,Turn,Straight
+8,356.00,338.00,Turn,Straight
+13,325.74,348.36,Crossing,Crossing-Under
+9,283.00,363.00,Turn,Straight
+14,282.20,313.92,Crossing,Crossing-Over
+15,281.48,269.53,Crossing,Crossing-Over
+10,281.00,240.00,Agent,Straight
