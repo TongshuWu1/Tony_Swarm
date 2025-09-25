@@ -147,6 +147,15 @@ class Knot_GUI:
         )
         self.matrix_overlay_checkbox.pack(pady=5)
 
+        self.show_full_agents = tk.BooleanVar()
+        self.full_agents_checkbox = tk.Checkbutton(
+            self.second_frame,
+            text="Show Pre-Reduction Path (agent on every turning point)",
+            variable=self.show_full_agents,
+            command=self.run_algorithm
+        )
+        self.full_agents_checkbox.pack(pady=5)
+
         self.use_cartesian_layout = tk.BooleanVar()
         self.cartesian_toggle_checkbox = tk.Checkbutton(
             self.second_frame,
@@ -513,14 +522,38 @@ class Knot_GUI:
                 self.crossing_number_label.config(text="Total number of crossings: —")
                 return
 
-
             path, head, crossNumber, loop_map, agent_registry, sections = (
                 Agent_reduction.compute_agent_reduction(matrix, entry, exit_)
             )
             self.section_list = sections
-            self.agent_points = {
-                point.pos_2d() for point in agent_registry.values()
-            }  # ✅ fixed
+
+            # Normal reduced set
+            reduced_agent_points = {point.pos_2d() for point in agent_registry.values()}
+
+            # Build full path list (before reduction) if toggle is on
+            if self.show_full_agents.get():
+                # Every turning point gets "agent"
+                path_list = []
+                current_node = head
+                while current_node:
+                    r, c = current_node.data
+                    path_list.append((r, c, "agent"))
+                    if (r, c) == exit_:
+                        break
+                    current_node = current_node.next
+                self.agent_points = {pt[:2] for pt in path_list}
+            else:
+                # Reduced version (existing behavior)
+                self.agent_points = reduced_agent_points
+                path_list = []
+                current_node = head
+                while current_node:
+                    r, c = current_node.data
+                    pt_type = current_node.point_identifier
+                    path_list.append((r, c, pt_type))
+                    if (r, c) == exit_:
+                        break
+                    current_node = current_node.next
 
             self.loop_map = loop_map
 
